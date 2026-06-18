@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" role="img" aria-labelledby="title desc">
+  <title id="title">DryLog PRO mock job photo</title>
+  <desc id="desc">A placeholder drying job photo used by the local mock server.</desc>
+  <rect width="960" height="640" fill="#e7edf0"/>
+  <rect x="68" y="72" width="824" height="496" rx="24" fill="#f7fafb" stroke="#bcc8ce" stroke-width="6"/>
+  <path d="M156 476 338 294l118 118 70-70 278 278H156Z" fill="#c9d6dc"/>
+  <circle cx="704" cy="194" r="58" fill="#f2b84b"/>
+  <rect x="118" y="116" width="220" height="44" rx="8" fill="#263238"/>
+  <rect x="118" y="178" width="342" height="28" rx="6" fill="#6f7d84"/>
+  <rect x="118" y="224" width="278" height="28" rx="6" fill="#8fa0a8"/>
+  <rect x="118" y="496" width="246" height="42" rx="8" fill="#2f7d6d"/>
+  <text x="142" y="525" fill="#ffffff" font-family="Arial, sans-serif" font-size="22" font-weight="700">MOCK SITE PHOTO</text>
+</svg>
