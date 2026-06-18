@@ -223,17 +223,39 @@
   window.apiPost = (path, body) => request(path, { method: 'POST', body: JSON.stringify(body || {}) });
   window.apiPut = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body || {}) });
   window.apiDelete = (path) => request(path, { method: 'DELETE' });
-  window.apiPostOrQueue = (path, body) => window.apiPost(path, body);
+  window.apiPostOrQueue = async function apiPostOrQueue(path, body, label) {
+    try {
+      return await window.apiPost(path, body);
+    } catch (error) {
+      if (!window.tcIsNetworkError(error)) throw error;
+      window.tcQueueAdd({
+        kind: 'api_post',
+        label: label || ('POST ' + path),
+        path,
+        body: body || {},
+        attempts: 0,
+        last_error: null
+      });
+      return { __queued: true };
+    }
+  };
 
   window.tcQueueRead = function tcQueueRead() {
     try { return JSON.parse(localStorage.getItem('drylog_queue') || '[]'); }
     catch (e) { return []; }
   };
 
+  window.tcQueueWrite = function tcQueueWrite(items) {
+    localStorage.setItem('drylog_queue', JSON.stringify(Array.isArray(items) ? items : []));
+  };
+
   window.tcQueueAdd = function tcQueueAdd(item) {
     const q = tcQueueRead();
-    q.push(Object.assign({ queued_at: new Date().toISOString() }, item));
-    localStorage.setItem('drylog_queue', JSON.stringify(q));
+    q.push(Object.assign({
+      id: 'q_' + Date.now() + '_' + Math.random().toString(16).slice(2),
+      queued_at: new Date().toISOString()
+    }, item));
+    tcQueueWrite(q);
   };
 
   window.tcCompressFile = async function tcCompressFile(file) {
