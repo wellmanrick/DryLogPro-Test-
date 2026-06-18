@@ -381,12 +381,15 @@ function buildDlpCommandScreen(ctx) {
   });
   const secondary = el('div', { class: 'dlp-command-actions' },
     dlpCommandButton('Buildout', zones.length + ' rooms/zones', renderDlpBuildoutStudio),
+    dlpCommandButton('Rooms', 'Entry', renderDlpRoomReadings),
     dlpCommandButton('Photos', 'Capture', renderDlpPhotos),
     dlpCommandButton('Readings', 'Trends', renderDlpDryingProgress),
     dlpCommandButton('Sketch', 'CAD', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
     dlpCommandButton('Equipment', String(deploys.length), renderDlpEquipmentList),
     dlpCommandButton('Report', taskPct + '%', renderDlpReportReview),
-    dlpCommandButton('Share', 'Preview', renderDlpSharePreview)
+    dlpCommandButton('Share', 'Preview', renderDlpSharePreview),
+    dlpCommandButton('Tools', 'QA', renderDlpFieldTools),
+    dlpCommandButton('Studio', 'Settings', renderDlpStudioSettings)
   );
   primary.append(eyebrow, title, hint, mainAction, secondary);
 
@@ -485,7 +488,9 @@ function buildDlpCommandScreen(ctx) {
     dlpBottomAction('Readings', renderDlpDryingProgress),
     dlpBottomAction('Sketch', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
     dlpBottomAction('Report', renderDlpReportReview),
-    dlpBottomAction('Share', renderDlpSharePreview)
+    dlpBottomAction('Share', renderDlpSharePreview),
+    dlpBottomAction('Tools', renderDlpFieldTools),
+    dlpBottomAction('Studio', renderDlpStudioSettings)
   );
 
   body.append(left, right);
@@ -562,9 +567,12 @@ async function renderDlpBuildoutStudio() {
 
   const footer = el('section', { class: 'dlp-build-footer' },
     dlpBuildFooterButton('Open Photos', renderDlpPhotos),
+    dlpBuildFooterButton('Room Readings', renderDlpRoomReadings),
     dlpBuildFooterButton('Open Sketch', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
     dlpBuildFooterButton('Open Report', renderDlpReportReview),
-    dlpBuildFooterButton('Share Preview', renderDlpSharePreview)
+    dlpBuildFooterButton('Share Preview', renderDlpSharePreview),
+    dlpBuildFooterButton('Field Tools', renderDlpFieldTools),
+    dlpBuildFooterButton('Studio', renderDlpStudioSettings)
   );
   screen.appendChild(footer);
 }
@@ -1693,6 +1701,25 @@ async function renderDlpDryingProgress(){
     dlpProgressMetric('Equipment', String(deploys.length), 'active on site')
   ));
 
+  const priorities = dlpProgressPriorities({
+    zones, openZones, points, latestMoisture, standards, atmos, deploys, dehu, dryPct
+  });
+  const priorityPanel = el('section',{class:'dlp-progress-actions'},
+    el('div',{class:'dlp-progress-actions-head'},
+      el('div',{},
+        el('span',{},'Field priorities'),
+        el('strong',{}, priorities.title)
+      ),
+      (() => {
+        const b = el('button',{type:'button'},'Daily Visit');
+        b.addEventListener('click', renderDlpDailyVisitWizard);
+        return b;
+      })()
+    ),
+    el('div',{class:'dlp-progress-action-grid'}, ...priorities.items.map(dlpProgressActionCard))
+  );
+  screen.appendChild(priorityPanel);
+
   const chartGrid = el('section',{class:'dlp-progress-charts'});
   chartGrid.appendChild(dlpChartPanel('Moisture trend', 'Average latest moisture by reading date', dlpSeriesByDate(moisture, 'moisture_value'), '%MC'));
   chartGrid.appendChild(dlpChartPanel('Atmosphere GPP', 'Chamber air moisture load over time', dlpSeriesByDate(atmos, 'gpp'), 'gpp'));
@@ -1770,6 +1797,91 @@ function dlpProgressPanelHead(title, meta) {
     el('strong',{}, title),
     el('span',{}, meta)
   );
+}
+
+
+function dlpProgressPriorities(ctx) {
+  const missingPointReads = Math.max(0, (ctx.points || []).length - (ctx.latestMoisture || []).length);
+  const items = [];
+  if (!(ctx.zones || []).length) {
+    items.push({
+      state:'critical',
+      label:'Build drying chambers',
+      meta:'Daily tracking starts with rooms, chambers, surfaces, and meter points.',
+      action:'Open Buildout',
+      onClick:renderDlpBuildoutStudio
+    });
+  }
+  if (missingPointReads > 0 || !(ctx.points || []).length) {
+    items.push({
+      state:'warn',
+      label:(ctx.points || []).length ? 'Complete meter readings' : 'Add meter points',
+      meta:(ctx.points || []).length ? `${missingPointReads} point${missingPointReads===1?'':'s'} still need current readings.` : 'Create repeatable points before the next visit.',
+      action:(ctx.points || []).length ? 'Start Visit' : 'Room Readings',
+      onClick:(ctx.points || []).length ? renderDlpDailyVisitWizard : renderDlpRoomReadings
+    });
+  }
+  if (!(ctx.standards || []).length) {
+    items.push({
+      state:'warn',
+      label:'Set dry standards',
+      meta:'Material goals make the report defensible and drive the at-goal score.',
+      action:'Field Tools',
+      onClick:renderDlpFieldTools
+    });
+  }
+  if (!(ctx.atmos || []).length) {
+    items.push({
+      state:'todo',
+      label:'Log chamber atmosphere',
+      meta:'Temp, RH, GPP, and dew point are missing from the drying story.',
+      action:'Daily Visit',
+      onClick:renderDlpDailyVisitWizard
+    });
+  }
+  if ((ctx.deploys || []).length && !(ctx.dehu || []).length) {
+    items.push({
+      state:'todo',
+      label:'Check dehu performance',
+      meta:'Intake/exhaust readings prove equipment is doing work.',
+      action:'Daily Visit',
+      onClick:renderDlpDailyVisitWizard
+    });
+  }
+  if ((ctx.points || []).length && ctx.dryPct >= 85) {
+    items.push({
+      state:'ok',
+      label:'Prep closeout package',
+      meta:ctx.dryPct >= 100 ? 'All current points are at goal. Review the packet before sharing.' : 'Most points are at goal. Start report review and clear gaps.',
+      action:'Report Review',
+      onClick:renderDlpReportReview
+    });
+  }
+  if (!items.length) {
+    items.push({
+      state:'ok',
+      label:'Keep the walk going',
+      meta:'Core documentation is in place. Capture today, review photos, and keep the timeline clean.',
+      action:'Daily Visit',
+      onClick:renderDlpDailyVisitWizard
+    });
+  }
+  return {
+    title: items.filter(i => i.state !== 'ok').length ? items.filter(i => i.state !== 'ok').length + ' items need attention' : 'Ready for the next visit',
+    items: items.slice(0, 4)
+  };
+}
+
+
+function dlpProgressActionCard(item) {
+  const card = el('button',{type:'button',class:'dlp-progress-action ' + (item.state || 'todo')},
+    el('span',{}, item.state === 'ok' ? 'Ready' : item.state === 'critical' ? 'Blocked' : 'Next'),
+    el('strong',{}, item.label),
+    el('em',{}, item.meta),
+    el('b',{}, item.action)
+  );
+  card.addEventListener('click', item.onClick || renderDlpDailyVisitWizard);
+  return card;
 }
 
 
@@ -1956,6 +2068,7 @@ async function renderDlpReportReview(){
   const totalWeight = checks.reduce((sum,c)=>sum+c.weight,0) || 1;
   const score = Math.round((checks.reduce((sum,c)=>sum+(c.done?c.weight:0),0) / totalWeight) * 100);
   const blockers = checks.filter(c => !c.done);
+  const studio = dlpReadStudioSettings(claim_id);
   const reportTitle = (job?.customer || selectedJob.customer || 'DryLog Claim') + ' Drying Report';
   const firstVisit = visits.map(v => v.visit_date).sort()[0] || '';
   const lastVisit = visits.map(v => v.visit_date).sort().slice(-1)[0] || '';
@@ -1975,7 +2088,8 @@ async function renderDlpReportReview(){
     el('div',{class:'dlp-report-actions'},
       (() => { const b=el('button',{type:'button'},'Preview'); b.addEventListener('click',()=>window.print()); return b; })(),
       (() => { const b=el('button',{type:'button'},'Download JSON'); b.addEventListener('click',()=>_dlpCadDownloadJson('drylog-report-package.json', reportPackage)); return b; })(),
-      (() => { const b=el('button',{type:'button'},'Readings'); b.addEventListener('click',renderDlpDryingProgress); return b; })()
+      (() => { const b=el('button',{type:'button'},'Readings'); b.addEventListener('click',renderDlpDryingProgress); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Studio'); b.addEventListener('click',renderDlpStudioSettings); return b; })()
     )
   ));
 
@@ -1986,6 +2100,11 @@ async function renderDlpReportReview(){
     dlpReportStat('Sketch SF', String(_dlpCadRound(cadTotals.floor_sf, 1)), cadRows.length ? cadRows.length + ' measured rooms' : 'no sketch'),
     dlpReportStat('Tasks', `${tasksDone}/${tasks.length}`, 'workflow complete')
   ));
+
+  screen.appendChild(dlpReportCloseoutPath({
+    score, blockers, alerts, rooms, zones, sketches, cadRows, surfaces,
+    standards, latestMoisture, points, atmos, imagePhotos, workItems
+  }));
 
   const body = el('section',{class:'dlp-report-body'});
   const qa = el('div',{class:'dlp-report-panel'});
@@ -2034,9 +2153,10 @@ async function renderDlpReportReview(){
   const packet = el('section',{class:'dlp-packet'});
   packet.appendChild(el('div',{class:'dlp-packet-cover'},
     el('div',{},
-      el('div',{class:'dlp-packet-kicker'},'DryLog PRO Documentation Packet'),
+      el('div',{class:'dlp-packet-kicker'},(studio.company_name || 'DryLog PRO') + ' Documentation Packet'),
       el('h1',{}, reportTitle),
-      el('p',{}, job?.address || selectedJob.address || 'Job address pending')
+      el('p',{}, job?.address || selectedJob.address || 'Job address pending'),
+      studio.report_note ? el('p',{class:'dlp-packet-brand-note'}, studio.report_note) : null
     ),
     el('div',{class:'dlp-packet-score'},
       el('strong',{}, score + '%'),
@@ -2049,24 +2169,24 @@ async function renderDlpReportReview(){
     dlpPacketMini('Readings', String(moisture.length + atmos.length + dehu.length), 'field data'),
     dlpPacketMini('Sketch', cadRows.length ? `${_dlpCadRound(cadTotals.floor_sf,1)} sf` : 'Missing', cadRows.length ? 'measured floor' : 'needs CAD')
   ));
-  packet.appendChild(dlpPacketSection('Narrative', narrativeLines.map(line => el('p',{}, line))));
-  packet.appendChild(dlpPacketSection('Sketch Measurements',
+  if (dlpStudioSectionOn(studio, 'narrative')) packet.appendChild(dlpPacketSection('Narrative', narrativeLines.map(line => el('p',{}, line))));
+  if (dlpStudioSectionOn(studio, 'sketch')) packet.appendChild(dlpPacketSection('Sketch Measurements',
     cadRows.length
       ? [dlpReportPacketTable(cadRows)]
       : [el('p',{},'No CAD sketch measurements are attached yet.')]
   ));
-  packet.appendChild(dlpPacketSection('Readings Summary', [
+  if (dlpStudioSectionOn(studio, 'readings')) packet.appendChild(dlpPacketSection('Readings Summary', [
     el('p',{}, `${latestMoisture.length} current moisture point${latestMoisture.length===1?'':'s'} are represented from ${moisture.length} total moisture reading${moisture.length===1?'':'s'}.`),
     el('p',{}, `${atmos.length} chamber atmosphere reading${atmos.length===1?'':'s'} and ${dehu.length} dehumidifier performance reading${dehu.length===1?'':'s'} are available for psychrometric review.`)
   ]));
-  packet.appendChild(dlpPacketSection('Equipment And Work Performed', [
+  if (dlpStudioSectionOn(studio, 'equipment')) packet.appendChild(dlpPacketSection('Equipment And Work Performed', [
     el('p',{}, `${deploys.length} active equipment deployment${deploys.length===1?'':'s'} documented. ${workItems.length} work log entr${workItems.length===1?'y':'ies'} recorded.`)
   ]));
   const photoNodes = imagePhotos.slice(0, 8).map(p => el('figure',{class:'dlp-packet-photo'},
     el('img',{src:p.file_url ? ('/' + String(p.file_url).replace(/^\/+/, '')) : 'mock-photo.svg', alt:p.caption || p.original_name || 'Job photo'}),
     el('figcaption',{}, p.caption || p.original_name || 'Job photo')
   ));
-  packet.appendChild(dlpPacketSection('Photo Appendix', photoNodes.length ? [el('div',{class:'dlp-packet-photos'}, ...photoNodes)] : [el('p',{},'No report photos attached yet.')]));
+  if (dlpStudioSectionOn(studio, 'photos')) packet.appendChild(dlpPacketSection('Photo Appendix', photoNodes.length ? [el('div',{class:'dlp-packet-photos'}, ...photoNodes)] : [el('p',{},'No report photos attached yet.')]));
   screen.appendChild(packet);
 }
 
@@ -2082,6 +2202,78 @@ function dlpReportCheck(done, label, meta) {
     el('strong',{},label),
     el('em',{},meta)
   );
+}
+
+
+function dlpReportCloseoutPath(ctx) {
+  const status =
+    ctx.score >= 92 && !(ctx.blockers || []).length ? 'Ready to share' :
+    ctx.score >= 75 ? 'Office review' :
+    'Field cleanup';
+  const items = dlpReportCloseoutActions(ctx);
+  return el('section',{class:'dlp-report-closeout'},
+    el('div',{class:'dlp-report-closeout-head'},
+      el('div',{},
+        el('span',{},'Closeout path'),
+        el('strong',{},status),
+        el('em',{}, (ctx.blockers || []).length ? `${ctx.blockers.length} gap${ctx.blockers.length===1?'':'s'} before the packet is clean.` : 'No report blockers found in the current file.')
+      ),
+      el('div',{class:'dlp-report-closeout-score'},
+        el('b',{}, ctx.score + '%'),
+        el('small',{},'readiness')
+      )
+    ),
+    el('div',{class:'dlp-report-closeout-grid'}, ...items.map(dlpReportCloseoutCard))
+  );
+}
+
+
+function dlpReportCloseoutActions(ctx) {
+  const missingReads = Math.max(0, (ctx.points || []).length - (ctx.latestMoisture || []).length);
+  const items = [];
+  if ((ctx.alerts || []).length) {
+    items.push({state:'critical', title:'Resolve open alerts', meta:`${ctx.alerts.length} alert${ctx.alerts.length===1?'':'s'} still open.`, action:'Field Tools', onClick:renderDlpFieldTools});
+  }
+  if (!(ctx.rooms || []).length || !(ctx.zones || []).length) {
+    items.push({state:'critical', title:'Build affected areas', meta:'Rooms and drying chambers are required before the packet makes sense.', action:'Buildout', onClick:renderDlpBuildoutStudio});
+  }
+  if (!(ctx.sketches || []).length && !(ctx.cadRows || []).length) {
+    items.push({state:'warn', title:'Add sketch measurements', meta:'Draw or import the chamber sketch for floor, wall, and wet-area quantities.', action:'Sketch', onClick:() => (ctx.zones || []).length ? renderDlpCadSketch(ctx.zones[0].id) : renderDlpSurfacesList()});
+  }
+  if (!(ctx.surfaces || []).length) {
+    items.push({state:'warn', title:'Select materials', meta:'Affected surfaces and materials drive dry goals and report language.', action:'Room Readings', onClick:renderDlpRoomReadings});
+  }
+  if (!(ctx.standards || []).length) {
+    items.push({state:'warn', title:'Set dry standards', meta:'Add material goals before sending the drying summary.', action:'Field Tools', onClick:renderDlpFieldTools});
+  }
+  if (missingReads > 0 || !(ctx.latestMoisture || []).length) {
+    items.push({state:'todo', title:'Finish readings', meta:missingReads ? `${missingReads} point${missingReads===1?'':'s'} need current readings.` : 'No current moisture point readings are available.', action:'Daily Visit', onClick:renderDlpDailyVisitWizard});
+  }
+  if (!(ctx.atmos || []).length) {
+    items.push({state:'todo', title:'Add psychrometric context', meta:'Chamber atmosphere readings are missing from the file.', action:'Daily Visit', onClick:renderDlpDailyVisitWizard});
+  }
+  if ((ctx.imagePhotos || []).length < 3) {
+    items.push({state:'todo', title:'Add report photos', meta:`${ctx.imagePhotos.length} photo${ctx.imagePhotos.length===1?'':'s'} attached; aim for arrival, source, equipment, and progress.`, action:'Photos', onClick:renderDlpPhotos});
+  }
+  if (!(ctx.workItems || []).length) {
+    items.push({state:'todo', title:'Document work performed', meta:'Add demo, material removal, cleaning, and equipment notes.', action:'Buildout', onClick:renderDlpBuildoutStudio});
+  }
+  if (!items.length) {
+    items.push({state:'ok', title:'Packet is clean', meta:'Review the packet preview, download JSON if needed, then share with the office or adjuster.', action:'Share Preview', onClick:renderDlpSharePreview});
+  }
+  return items.slice(0, 4);
+}
+
+
+function dlpReportCloseoutCard(item) {
+  const b = el('button',{type:'button',class:'dlp-report-closeout-card ' + (item.state || 'todo')},
+    el('span',{}, item.state === 'critical' ? 'Blocker' : item.state === 'ok' ? 'Ready' : 'Next'),
+    el('strong',{}, item.title),
+    el('em',{}, item.meta),
+    el('b',{}, item.action)
+  );
+  b.addEventListener('click', item.onClick || renderDlpReportReview);
+  return b;
 }
 
 
@@ -2169,6 +2361,150 @@ function dlpBuildReportPackage(ctx){
     },
     narrative: ctx.narrativeLines || [],
   };
+}
+
+async function renderDlpStudioSettings(){
+  clear(); enableInactivity();
+  tcLiveSet({current_screen:'drylog-pro/studio', current_job_id:selectedJob?.job_id||null}, 'DryLog PRO - Studio');
+  root.appendChild(buildTopbar('Dashboard', renderDrylogPro, {showClockLink:true}));
+
+  const claim_id = selectedJob.job_id;
+  const screen = el('div',{class:'screen dlp-studio'});
+  screen.addEventListener('click', resetInactivity);
+  const current = dlpReadStudioSettings(claim_id);
+
+  screen.appendChild(el('section',{class:'dlp-studio-hero'},
+    el('div',{},
+      el('div',{class:'dlp-studio-kicker'},'Prototype studio'),
+      el('h1',{}, current.company_name || 'DryLog PRO'),
+      el('p',{}, 'Branding, report sections, demo mode, and handoff settings saved in this browser for now.')
+    ),
+    el('div',{class:'dlp-studio-mark'}, (current.company_name || 'DL').split(/\s+/).map(s=>s[0]).join('').slice(0,3).toUpperCase())
+  ));
+
+  const company = el('input',{placeholder:'Company name',value:current.company_name || 'DryLog PRO'});
+  const phone = el('input',{placeholder:'Company phone',value:current.company_phone || ''});
+  const email = el('input',{placeholder:'Company email',value:current.company_email || ''});
+  const accent = dlpBuildSelect([['industrial','Industrial teal'],['field','Field green'],['carrier','Carrier amber'],['clean','Clean monochrome']], current.theme || 'industrial');
+  const note = el('textarea',{rows:3,placeholder:'Report note / footer language',value:current.report_note || 'Documentation generated from field readings, photos, sketch measurements, and mitigation work logs.'});
+
+  const sections = [
+    ['narrative','Narrative'],
+    ['sketch','Sketch measurements'],
+    ['readings','Readings summary'],
+    ['equipment','Equipment/work performed'],
+    ['photos','Photo appendix']
+  ];
+  const sectionWrap = el('div',{class:'dlp-studio-sections'});
+  const sectionState = Object.assign({}, dlpDefaultStudioSections(), current.sections || {});
+  sections.forEach(([id,label]) => {
+    const cb = el('input',{type:'checkbox',checked:sectionState[id] !== false});
+    cb.addEventListener('change',()=>{ sectionState[id] = cb.checked; });
+    sectionWrap.appendChild(el('label',{}, cb, el('span',{},label)));
+  });
+
+  const save = el('button',{type:'button',class:'dlp-build-primary'},'Save studio settings');
+  save.addEventListener('click',()=>{
+    dlpWriteStudioSettings(claim_id,{
+      company_name:company.value.trim() || 'DryLog PRO',
+      company_phone:phone.value.trim(),
+      company_email:email.value.trim(),
+      theme:accent.value,
+      report_note:note.value.trim(),
+      sections:sectionState
+    });
+    tcToast('Studio settings saved', 'info');
+    renderDlpStudioSettings();
+  });
+
+  const reset = el('button',{type:'button',class:'dlp-build-secondary'},'Reset studio settings');
+  reset.addEventListener('click',()=>{
+    if (!confirm('Reset local studio settings for this claim?')) return;
+    localStorage.removeItem('drylog_studio_' + claim_id);
+    tcToast('Studio reset', 'info');
+    renderDlpStudioSettings();
+  });
+
+  const exportBtn = el('button',{type:'button',class:'dlp-build-secondary'},'Download settings JSON');
+  exportBtn.addEventListener('click',()=>_dlpCadDownloadJson('drylog-studio-settings.json', dlpReadStudioSettings(claim_id)));
+
+  const seedBtn = el('button',{type:'button',class:'dlp-build-secondary'},'Create extra demo job');
+  seedBtn.addEventListener('click', async ()=>{
+    seedBtn.disabled = true;
+    try {
+      const stamp = Math.floor(Math.random()*900 + 100);
+      await apiPost('/jobs', {
+        customer:'Demo Loss ' + stamp,
+        address: stamp + ' Demo Avenue',
+        claim_no:'DEMO-' + stamp,
+        loss_type:'Water mitigation',
+        source_of_loss:'Appliance leak'
+      });
+      tcToast('Demo job created', 'info');
+    } catch(e) {
+      tcToast('Demo job failed: ' + (e.message || e), 'error');
+    }
+    seedBtn.disabled = false;
+  });
+
+  const panels = el('section',{class:'dlp-studio-grid'},
+    dlpStudioPanel('Company Branding','These values will become account/company settings later.',
+      el('div',{class:'dlp-studio-form two'}, company, phone),
+      el('div',{class:'dlp-studio-form two'}, email, accent),
+      note,
+      save
+    ),
+    dlpStudioPanel('Report Sections','Choose which sections show in the printable packet preview.',
+      sectionWrap,
+      el('div',{class:'dlp-studio-actions'}, (()=>{ const b=el('button',{type:'button',class:'dlp-build-primary'},'Open report preview'); b.addEventListener('click',renderDlpReportReview); return b; })())
+    ),
+    dlpStudioPanel('Demo Controls','Useful while this is still a mock/prototype environment.',
+      el('div',{class:'dlp-studio-actions'}, seedBtn, reset, exportBtn)
+    ),
+    dlpStudioPanel('Next Cloud Settings','These are placeholders for the real product account layer.',
+      dlpStudioRoadmapRow('Users + roles','Owner, admin, field tech, reviewer'),
+      dlpStudioRoadmapRow('Storage','Photos, PDFs, exports, signatures'),
+      dlpStudioRoadmapRow('Sharing','Secure customer/adjuster links'),
+      dlpStudioRoadmapRow('Persistence','Database-backed jobs, readings, sketches')
+    )
+  );
+  screen.appendChild(panels);
+  root.appendChild(screen);
+}
+
+function dlpDefaultStudioSections(){
+  return {narrative:true, sketch:true, readings:true, equipment:true, photos:true};
+}
+
+function dlpReadStudioSettings(claimId){
+  try {
+    return Object.assign({company_name:'DryLog PRO', sections:dlpDefaultStudioSections()}, JSON.parse(localStorage.getItem('drylog_studio_' + claimId) || '{}'));
+  } catch(e) {
+    return {company_name:'DryLog PRO', sections:dlpDefaultStudioSections()};
+  }
+}
+
+function dlpWriteStudioSettings(claimId, patch){
+  const next = Object.assign({}, dlpReadStudioSettings(claimId), patch || {});
+  next.sections = Object.assign({}, dlpDefaultStudioSections(), next.sections || {});
+  localStorage.setItem('drylog_studio_' + claimId, JSON.stringify(next));
+  return next;
+}
+
+function dlpStudioSectionOn(settings, key){
+  const sections = Object.assign({}, dlpDefaultStudioSections(), (settings || {}).sections || {});
+  return sections[key] !== false;
+}
+
+function dlpStudioPanel(title, note, ...children){
+  return el('section',{class:'dlp-studio-panel'},
+    el('div',{class:'dlp-studio-panel-head'}, el('h2',{},title), note ? el('p',{},note) : null),
+    ...children
+  );
+}
+
+function dlpStudioRoadmapRow(title, detail){
+  return el('div',{class:'dlp-studio-roadmap'}, el('strong',{},title), el('span',{},detail));
 }
 
 
@@ -2410,6 +2746,421 @@ function dlpWriteShareSettings(claimId, patch){
   return next;
 }
 
+async function renderDlpRoomReadings(activeRoomId){
+  clear(); enableInactivity();
+  tcLiveSet({current_screen:'drylog-pro/room-readings', current_job_id:selectedJob?.job_id||null}, 'DryLog PRO - Room Readings');
+  root.appendChild(buildTopbar('Dashboard', renderDrylogPro, {showClockLink:true}));
+
+  const claim_id = selectedJob.job_id;
+  const screen = el('div',{class:'screen dlp-roomread'});
+  screen.addEventListener('click', resetInactivity);
+  const loading = el('div',{class:'dlp-empty'},'Building room reading board...');
+  screen.appendChild(loading);
+  root.appendChild(screen);
+
+  let rooms=[], zones=[], moisture=[], atmos=[];
+  try {
+    [rooms, zones, moisture, atmos] = await Promise.all([
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(()=>[]),
+      apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/zone-atmosphere?claim_id=${claim_id}`).catch(()=>[]),
+    ]);
+  } catch(e) {}
+
+  let surfaces=[], points=[];
+  try {
+    const surfaceLists = await Promise.all((zones || []).map(z => apiGet(`/claim-surfaces?drying_zone_id=${z.id}`).catch(()=>[])));
+    surfaces = surfaceLists.flat().filter(Boolean);
+    const pointLists = await Promise.all(surfaces.map(s => apiGet(`/reading-points?claim_surface_id=${s.id}`).catch(()=>[])));
+    points = pointLists.flat().filter(Boolean);
+  } catch(e) {}
+  loading.remove();
+
+  const roomId = Number(activeRoomId || rooms[0]?.id || 0);
+  const activeRoom = rooms.find(r => Number(r.id) === roomId) || rooms[0] || null;
+  const latestMoisture = dlpLatestBy(moisture, 'reading_point_id');
+  const latestAtmos = dlpLatestBy(atmos, 'drying_zone_id');
+
+  screen.appendChild(el('section',{class:'dlp-roomread-hero'},
+    el('div',{},
+      el('div',{class:'dlp-roomread-kicker'},'Room-by-room entry'),
+      el('h1',{}, activeRoom ? activeRoom.name : 'No rooms yet'),
+      el('p',{}, 'Fast daily entry for chamber atmosphere and repeatable material moisture points.')
+    ),
+    el('div',{class:'dlp-roomread-score'}, el('strong',{}, String(points.length)), el('span',{}, 'points'))
+  ));
+
+  if (!rooms.length) {
+    screen.appendChild(el('div',{class:'dlp-empty'},'Add rooms in Buildout before room readings can be entered.'));
+    return;
+  }
+
+  const roomTabs = el('section',{class:'dlp-roomread-tabs'});
+  rooms.forEach(room => {
+    const zonesForRoom = zones.filter(z => (z.claim_room_ids || []).map(Number).includes(Number(room.id)));
+    const roomPoints = dlpPointsForZones(zonesForRoom, surfaces, points);
+    const captured = roomPoints.filter(p => latestMoisture[p.id]).length;
+    const tab = el('button',{type:'button',class:'dlp-roomread-tab ' + (Number(room.id) === Number(activeRoom.id) ? 'active' : '')},
+      el('strong',{}, room.name || ('Room ' + room.id)),
+      el('span',{}, captured + '/' + roomPoints.length + ' points')
+    );
+    tab.addEventListener('click', () => renderDlpRoomReadings(room.id));
+    roomTabs.appendChild(tab);
+  });
+  screen.appendChild(roomTabs);
+
+  const activeZones = zones.filter(z => (z.claim_room_ids || []).map(Number).includes(Number(activeRoom.id)));
+  if (!activeZones.length) {
+    screen.appendChild(el('div',{class:'dlp-empty'},'This room is not attached to a drying chamber yet. Open Buildout and add it to a chamber.'));
+    return;
+  }
+
+  const board = el('section',{class:'dlp-roomread-board'});
+  activeZones.forEach(zone => {
+    const zoneSurfaces = surfaces.filter(s => Number(s.drying_zone_id) === Number(zone.id));
+    const zonePoints = dlpPointsForZones([zone], surfaces, points);
+    const dryCount = zonePoints.filter(p => {
+      const latest = latestMoisture[p.id];
+      return latest && Number(latest.is_dry_at_time || 0) === 1;
+    }).length;
+    const zoneCard = el('div',{class:'dlp-roomread-zone'});
+    zoneCard.appendChild(el('div',{class:'dlp-roomread-zone-head'},
+      el('div',{}, el('h2',{}, zone.name || 'Drying Chamber'), el('p',{}, `CAT ${zone.category_of_water || '-'} | Class ${zone.class_of_water || '-'} | ${dryCount}/${zonePoints.length} dry`)),
+      dlpRoomAtmosMini(zone, latestAtmos[zone.id])
+    ));
+    zoneCard.appendChild(dlpRoomAtmosForm(claim_id, zone, activeRoom.id));
+
+    if (!zoneSurfaces.length) {
+      zoneCard.appendChild(el('div',{class:'dlp-command-empty'},'No surfaces have been created in this chamber yet.'));
+    } else {
+      zoneSurfaces.forEach(surface => {
+        const surfacePoints = points.filter(p => Number(p.claim_surface_id) === Number(surface.id));
+        zoneCard.appendChild(dlpRoomSurfaceReadings(claim_id, activeRoom.id, surface, surfacePoints, latestMoisture));
+      });
+    }
+    board.appendChild(zoneCard);
+  });
+  screen.appendChild(board);
+
+  screen.appendChild(el('section',{class:'dlp-roomread-footer'},
+    dlpBuildFooterButton('Add Surface', () => renderDlpSurfaceCreate(activeZones[0].id)),
+    dlpBuildFooterButton('Open Trends', renderDlpDryingProgress),
+    dlpBuildFooterButton('Daily Visit', renderDlpDailyVisitWizard)
+  ));
+}
+
+function dlpLatestBy(rows, key){
+  const out = {};
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const id = Number(row[key] || 0);
+    if (!id) return;
+    if (!out[id] || String(row.reading_at || '') > String(out[id].reading_at || '')) out[id] = row;
+  });
+  return out;
+}
+
+function dlpPointsForZones(zones, surfaces, points){
+  const zoneIds = new Set((zones || []).map(z => Number(z.id)));
+  const surfaceIds = new Set((surfaces || []).filter(s => zoneIds.has(Number(s.drying_zone_id))).map(s => Number(s.id)));
+  return (points || []).filter(p => surfaceIds.has(Number(p.claim_surface_id)));
+}
+
+function dlpRoomAtmosMini(zone, latest){
+  return el('div',{class:'dlp-roomread-atmos-mini'},
+    el('strong',{}, latest ? `${Number(latest.temp_f || 0).toFixed(1)}F / ${Number(latest.rh_pct || 0).toFixed(1)}%` : 'No atmos'),
+    el('span',{}, latest?.gpp != null ? `${Number(latest.gpp).toFixed(1)} gpp` : 'capture needed')
+  );
+}
+
+function dlpRoomAtmosForm(claimId, zone, roomId){
+  const temp = el('input',{type:'number',step:'0.1',placeholder:'Temp F'});
+  const rh = el('input',{type:'number',step:'0.1',placeholder:'RH %'});
+  const save = el('button',{type:'button'},'Save atmosphere');
+  save.addEventListener('click', async () => {
+    const temp_f = Number(temp.value || NaN);
+    const rh_pct = Number(rh.value || NaN);
+    if (!Number.isFinite(temp_f) || !Number.isFinite(rh_pct)) { tcToast('Temp and RH are required', 'error'); return; }
+    save.disabled = true;
+    try {
+      const visit_id = await _dlpEnsureVisit(claimId);
+      await apiPost('/readings/zone-atmosphere', {drying_zone_id:Number(zone.id), visit_id, temp_f, rh_pct});
+      tcToast('Atmosphere saved', 'info');
+      renderDlpRoomReadings(roomId);
+    } catch(e) {
+      tcToast('Atmosphere failed: ' + (e.message || e), 'error');
+      save.disabled = false;
+    }
+  });
+  return el('div',{class:'dlp-roomread-atmos-form'}, temp, rh, save);
+}
+
+function dlpRoomSurfaceReadings(claimId, roomId, surface, surfacePoints, latestByPoint){
+  const wrap = el('div',{class:'dlp-roomread-surface'});
+  wrap.appendChild(el('div',{class:'dlp-roomread-surface-head'},
+    el('div',{}, el('strong',{}, surface.surface_label || surface.surface_type || 'Surface'), el('span',{}, [surface.material, surface.dry_goal != null ? 'Goal ' + surface.dry_goal + ' ' + (surface.dry_goal_unit || '%MC') : 'No goal'].filter(Boolean).join(' | '))),
+    el('em',{}, surfacePoints.length + ' points')
+  ));
+  if (!surfacePoints.length) {
+    wrap.appendChild(el('div',{class:'dlp-command-empty'},'No reading points on this surface.'));
+    return wrap;
+  }
+  surfacePoints.forEach(point => wrap.appendChild(dlpRoomPointRow(claimId, roomId, surface, point, latestByPoint[point.id])));
+  return wrap;
+}
+
+function dlpRoomPointRow(claimId, roomId, surface, point, latest){
+  const input = el('input',{type:'number',step:'0.1',placeholder:'Reading'});
+  const unit = dlpBuildSelect([['%MC','%MC'],['%WME','%WME']], surface.dry_goal_unit || '%MC');
+  const save = el('button',{type:'button'},'Save');
+  const dry = latest && Number(latest.is_dry_at_time || 0) === 1;
+  save.addEventListener('click', async () => {
+    const value = Number(input.value || NaN);
+    if (!Number.isFinite(value)) { tcToast('Enter a reading value', 'error'); return; }
+    save.disabled = true;
+    try {
+      const visit_id = await _dlpEnsureVisit(claimId);
+      await apiPost('/readings/moisture', {
+        reading_point_id:Number(point.id),
+        visit_id,
+        moisture_value:value,
+        moisture_unit:unit.value
+      });
+      tcToast('Reading saved', 'info');
+      renderDlpRoomReadings(roomId);
+    } catch(e) {
+      tcToast('Reading failed: ' + (e.message || e), 'error');
+      save.disabled = false;
+    }
+  });
+  return el('div',{class:'dlp-roomread-point ' + (dry ? 'dry' : latest ? 'wet' : 'empty')},
+    el('div',{class:'dlp-roomread-point-main'},
+      el('strong',{}, point.point_label || ('Point ' + point.id)),
+      el('span',{}, point.location_notes || 'Repeatable meter location')
+    ),
+    el('div',{class:'dlp-roomread-latest'},
+      latest ? el('strong',{}, `${Number(latest.moisture_value || 0).toFixed(1)} ${latest.moisture_unit || surface.dry_goal_unit || '%MC'}`) : el('strong',{}, 'No reading'),
+      el('span',{}, latest ? (dry ? 'At goal' : 'Above goal') : 'today pending')
+    ),
+    el('div',{class:'dlp-roomread-entry'}, input, unit, save)
+  );
+}
+
+async function renderDlpFieldTools(){
+  clear(); enableInactivity();
+  tcLiveSet({current_screen:'drylog-pro/field-tools', current_job_id:selectedJob?.job_id||null}, 'DryLog PRO - Field Tools');
+  root.appendChild(buildTopbar('Dashboard', renderDrylogPro, {showClockLink:true}));
+
+  const claim_id = selectedJob.job_id;
+  const screen = el('div',{class:'screen dlp-tools'});
+  screen.addEventListener('click', resetInactivity);
+  const loading = el('div',{class:'dlp-empty'},'Loading field tools...');
+  screen.appendChild(loading);
+  root.appendChild(screen);
+
+  let rooms=[], zones=[], standards=[], deploys=[], alerts=[], photos=[], workItems=[], moisture=[], atmos=[];
+  try {
+    [rooms, zones, standards, deploys, alerts, photos, workItems, moisture, atmos] = await Promise.all([
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(()=>[]),
+      apiGet(`/claim-material-standards?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/equipment-deploys?job_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/alerts?claim_id=${claim_id}&state=open`).catch(()=>[]),
+      apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/room-work-items?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/zone-atmosphere?claim_id=${claim_id}`).catch(()=>[]),
+    ]);
+  } catch(e) {}
+  loading.remove();
+
+  const queue = typeof tcQueueRead === 'function' ? tcQueueRead() : [];
+  const openDeploys = (deploys || []).filter(d => !d.returned_at);
+  const imagePhotos = (photos || []).filter(p => /^image\//.test(String(p.mime_type || '')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name || p.file_url || '')));
+  const readyChecks = dlpFieldCloseoutChecks({rooms,zones,standards,openDeploys,alerts,imagePhotos,workItems,moisture,atmos,queue});
+  const readyPct = Math.round(readyChecks.filter(c=>c.done).length / readyChecks.length * 100);
+
+  screen.appendChild(el('section',{class:'dlp-tools-hero'},
+    el('div',{},
+      el('div',{class:'dlp-tools-kicker'},'Field tools'),
+      el('h1',{}, readyPct + '% closeout ready'),
+      el('p',{}, 'Psychrometrics, material presets, offline queue, equipment return, and final QA in one place.')
+    ),
+    el('div',{class:'dlp-tools-score'}, el('strong',{}, String(queue.length)), el('span',{}, 'queued'))
+  ));
+
+  screen.appendChild(el('section',{class:'dlp-tools-grid'},
+    dlpPsychroToolPanel(),
+    dlpMaterialPresetPanel(claim_id, standards),
+    dlpEquipmentReturnPanel(claim_id, openDeploys),
+    dlpOfflineQueuePanel(queue),
+    dlpCloseoutPanel(readyChecks),
+    dlpScopeTrackerPanel(claim_id, rooms, workItems)
+  ));
+}
+
+function dlpPsychroToolPanel(){
+  const aT = el('input',{type:'number',step:'0.1',placeholder:'Area A temp F',value:'74'});
+  const aR = el('input',{type:'number',step:'0.1',placeholder:'Area A RH %',value:'48'});
+  const bT = el('input',{type:'number',step:'0.1',placeholder:'Area B temp F',value:'92'});
+  const bR = el('input',{type:'number',step:'0.1',placeholder:'Area B RH %',value:'24'});
+  const out = el('div',{class:'dlp-tools-result'});
+  function refresh(){
+    const a = _dlpPsychroClient(Number(aT.value), Number(aR.value));
+    const b = _dlpPsychroClient(Number(bT.value), Number(bR.value));
+    const grain = a.gpp != null && b.gpp != null ? a.gpp - b.gpp : null;
+    out.innerHTML = '';
+    out.append(
+      dlpToolsResultCell('Area A', a.gpp != null ? a.gpp.toFixed(1) + ' gpp' : '—', a.dew_point_f != null ? 'DP ' + a.dew_point_f.toFixed(1) + 'F' : ''),
+      dlpToolsResultCell('Area B', b.gpp != null ? b.gpp.toFixed(1) + ' gpp' : '—', b.dew_point_f != null ? 'DP ' + b.dew_point_f.toFixed(1) + 'F' : ''),
+      dlpToolsResultCell('Grain diff', grain != null ? grain.toFixed(1) + ' gpp' : '—', grain != null ? dlpGrainGuide(grain) : '')
+    );
+  }
+  [aT,aR,bT,bR].forEach(i => i.addEventListener('input', refresh));
+  refresh();
+  return dlpToolsPanel('Psychrometric Helper', 'Compare chamber, exhaust, outdoor, or unaffected readings.',
+    el('div',{class:'dlp-tools-form four'}, aT, aR, bT, bR),
+    out
+  );
+}
+
+function dlpMaterialPresetPanel(claimId, standards){
+  const presets = [
+    {name:'Standard residential', rows:[['drywall',16,'%MC','pin'],['wood',12,'%MC','pin'],['subfloor',14,'%MC','pin'],['concrete',75,'%WME','non-pin']]},
+    {name:'Conservative closeout', rows:[['drywall',14,'%MC','pin'],['wood',10,'%MC','pin'],['subfloor',12,'%MC','pin'],['concrete',65,'%WME','non-pin']]},
+    {name:'Screening mode', rows:[['drywall',18,'%MC','pin'],['wood',14,'%MC','pin'],['subfloor',16,'%MC','pin'],['carpet',20,'%WME','non-pin']]}
+  ];
+  const active = el('div',{class:'dlp-build-token-list'});
+  (standards || []).forEach(s => active.appendChild(el('span',{}, `${s.material}: ${s.dry_goal}${s.dry_goal_unit || ''}`)));
+  const buttons = el('div',{class:'dlp-tools-button-grid'});
+  presets.forEach(preset => {
+    const btn = el('button',{type:'button'},preset.name);
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        for (const row of preset.rows) {
+          await apiPost('/claim-material-standards', {claim_id:claimId, material:row[0], dry_goal:row[1], dry_goal_unit:row[2], meter_type:row[3]});
+        }
+        tcToast('Material preset applied', 'info');
+        renderDlpFieldTools();
+      } catch(e) {
+        tcToast('Preset failed: ' + (e.message || e), 'error');
+        btn.disabled = false;
+      }
+    });
+    buttons.appendChild(btn);
+  });
+  return dlpToolsPanel('Material Presets', 'Apply common dry goal packages quickly for prototype testing.', buttons, active);
+}
+
+function dlpEquipmentReturnPanel(claimId, deploys){
+  const list = el('div',{class:'dlp-tools-list'});
+  if (!deploys.length) list.appendChild(el('div',{class:'dlp-command-empty'},'No active equipment to return.'));
+  deploys.forEach(d => {
+    const btn = el('button',{type:'button',class:'dlp-tools-row'},
+      el('span',{}, `${d.asset_tag || d.equipment_id} - ${d.type || 'Equipment'}`),
+      el('em',{}, `${d.hours_deployed || 0} hrs | Return`)
+    );
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        await apiPut('/equipment-deploys/' + encodeURIComponent(d.id), {returned:true});
+        tcToast('Equipment returned', 'info');
+        renderDlpFieldTools();
+      } catch(e) {
+        tcToast('Return failed: ' + (e.message || e), 'error');
+        btn.disabled = false;
+      }
+    });
+    list.appendChild(btn);
+  });
+  return dlpToolsPanel('Equipment Return', 'Pull equipment from the active deployment list when a chamber is ready.', list);
+}
+
+function dlpOfflineQueuePanel(queue){
+  const list = el('div',{class:'dlp-tools-list'});
+  if (!queue.length) list.appendChild(el('div',{class:'dlp-command-empty'},'Offline queue is empty.'));
+  queue.slice(0,8).forEach((item, idx) => list.appendChild(el('div',{class:'dlp-tools-row static'},
+    el('span',{}, item.kind || 'Queued item'),
+    el('em',{}, item.queued_at ? new Date(item.queued_at).toLocaleString() : '#' + (idx + 1))
+  )));
+  const clear = el('button',{type:'button',class:'dlp-build-secondary'},'Clear demo queue');
+  clear.addEventListener('click',()=>{
+    if (!confirm('Clear the local demo queue?')) return;
+    localStorage.setItem('drylog_queue','[]');
+    tcToast('Queue cleared', 'info');
+    renderDlpFieldTools();
+  });
+  return dlpToolsPanel('Offline Queue', 'Local browser queue for pending photo/offline actions.', list, clear);
+}
+
+function dlpCloseoutPanel(checks){
+  const list = el('div',{class:'dlp-tools-checks'});
+  checks.forEach(c => list.appendChild(dlpReportCheck(c.done, c.label, c.meta)));
+  return dlpToolsPanel('Final QA / Closeout', 'Use this before sending a report or pulling the last equipment.', list);
+}
+
+function dlpScopeTrackerPanel(claimId, rooms, workItems){
+  const room = dlpBuildSelect((rooms || []).map(r => [String(r.id), r.name || ('Room ' + r.id)]), rooms?.[0]?.id ? String(rooms[0].id) : '');
+  const label = el('input',{placeholder:'Scope item, ex: Detached toe kick'});
+  const qty = el('input',{type:'number',step:'0.1',placeholder:'Qty',value:'1'});
+  const unit = dlpBuildSelect(DLP_WORK_UNITS.map(u => [u,u]), 'ea');
+  const save = el('button',{type:'button',class:'dlp-build-primary'},'Add scope item');
+  save.disabled = !rooms.length;
+  save.addEventListener('click', async () => {
+    if (!room.value) return;
+    save.disabled = true;
+    try {
+      const visit_id = await _dlpEnsureVisit(claimId);
+      await apiPost('/room-work-items', {claim_room_id:Number(room.value), visit_id, item_type:'scope', label:label.value.trim() || 'Scope item', qty:Number(qty.value || 1), unit:unit.value});
+      tcToast('Scope item added', 'info');
+      renderDlpFieldTools();
+    } catch(e) {
+      tcToast('Scope save failed: ' + (e.message || e), 'error');
+      save.disabled = false;
+    }
+  });
+  const recent = el('div',{class:'dlp-build-token-list'});
+  (workItems || []).slice(0,8).forEach(w => recent.appendChild(el('span',{}, `${w.label || w.notes || 'Work'}${w.qty ? ' ' + w.qty + (w.unit || '') : ''}`)));
+  return dlpToolsPanel('Scope Tracker', 'Log small scope/work items without leaving the field console.',
+    el('div',{class:'dlp-tools-form four'}, room, label, qty, unit),
+    save,
+    recent
+  );
+}
+
+function dlpFieldCloseoutChecks(ctx){
+  return [
+    {label:'Rooms and chambers exist', done:ctx.rooms.length > 0 && ctx.zones.length > 0, meta:`${ctx.rooms.length} rooms / ${ctx.zones.length} chambers`},
+    {label:'Material dry goals set', done:ctx.standards.length > 0, meta:ctx.standards.length + ' standards'},
+    {label:'Moisture readings captured', done:ctx.moisture.length > 0, meta:ctx.moisture.length + ' readings'},
+    {label:'Atmosphere readings captured', done:ctx.atmos.length > 0, meta:ctx.atmos.length + ' readings'},
+    {label:'Photos documented', done:ctx.imagePhotos.length >= 3, meta:ctx.imagePhotos.length + ' photos'},
+    {label:'Work/scope documented', done:ctx.workItems.length > 0, meta:ctx.workItems.length + ' entries'},
+    {label:'Alerts resolved', done:ctx.alerts.length === 0, meta:ctx.alerts.length ? ctx.alerts.length + ' open' : 'clear'},
+    {label:'Equipment pulled or justified', done:ctx.openDeploys.length === 0, meta:ctx.openDeploys.length ? ctx.openDeploys.length + ' active' : 'none active'},
+    {label:'Offline queue empty', done:ctx.queue.length === 0, meta:ctx.queue.length ? ctx.queue.length + ' queued' : 'clear'},
+  ];
+}
+
+function dlpToolsPanel(title, note, ...children){
+  return el('section',{class:'dlp-tools-panel'},
+    el('div',{class:'dlp-tools-panel-head'}, el('h2',{},title), note ? el('p',{},note) : null),
+    ...children
+  );
+}
+
+function dlpToolsResultCell(label, value, meta){
+  return el('div',{}, el('span',{},label), el('strong',{},value), el('em',{},meta || ''));
+}
+
+function dlpGrainGuide(value){
+  if (value >= 20 && value <= 40) return 'healthy dehu drop';
+  if (value >= 10) return 'watch airflow';
+  if (value > 0) return 'low removal';
+  return 'reverse/invalid';
+}
+
 
 async function renderDlpDailyVisitWizard(){
   clear(); enableInactivity();
@@ -2423,22 +3174,48 @@ async function renderDlpDailyVisitWizard(){
   root.appendChild(screen);
 
   // Pull state needed to build the plan
-  let zones=[], deploys=[], todayOutdoorRefs=[];
+  let zones=[], deploys=[], todayOutdoorRefs=[], rooms=[], surfaces=[], points=[], queue=[];
   try {
     const today = new Date().toISOString().slice(0,10);
-    const [z, d, ref] = await Promise.all([
+    const [z, d, ref, rm] = await Promise.all([
       apiGet(`/drying-zones?claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/equipment-deploys?job_id=${claim_id}&active=1`).catch(()=>[]),
       apiGet(`/readings/reference?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
     ]);
     zones = (Array.isArray(z)?z:[]).filter(zz => !zz.is_closed);
     deploys = Array.isArray(d)?d:[];
+    rooms = Array.isArray(rm)?rm:[];
     todayOutdoorRefs = (Array.isArray(ref)?ref:[]).filter(r =>
       r.reading_type === 'outdoor' && String(r.reading_at).startsWith(today));
+    const surfaceLists = await Promise.all(zones.map(z =>
+      apiGet(`/claim-surfaces?drying_zone_id=${z.id}`).catch(()=>[])));
+    surfaces = surfaceLists.flat().filter(Boolean);
+    const pointLists = await Promise.all(surfaces.map(s =>
+      apiGet(`/reading-points?claim_surface_id=${s.id}`).catch(()=>[])));
+    points = pointLists.flat().filter(Boolean);
+    queue = typeof tcQueueRead === 'function' ? tcQueueRead() : [];
   } catch(e){}
+
+  const preflight = {
+    zones_count: zones.length,
+    rooms_count: rooms.length,
+    surfaces_count: surfaces.length,
+    points_count: points.length,
+    deploys_count: deploys.length,
+    outdoor_done: todayOutdoorRefs.length > 0,
+    queue_count: queue.length,
+  };
+
+  if (zones.length === 0) {
+    loading.remove();
+    screen.appendChild(dlpVisitSetupEmpty(preflight));
+    return;
+  }
 
   // Build step plan
   const steps = [];
+  steps.push({type:'preflight', label:'Visit preflight', summary:preflight});
   if (todayOutdoorRefs.length === 0) {
     steps.push({type:'outdoor_ref', label:'Outdoor baseline reading'});
   }
@@ -2456,7 +3233,7 @@ async function renderDlpDailyVisitWizard(){
   steps.push({type:'photos', label:'Photos for this visit'});
   steps.push({type:'done', label:'Done'});
 
-  __dlpWizState = { steps, idx: 0, claim_id };
+  __dlpWizState = { steps, idx: 0, claim_id, preflight };
   loading.remove();
   await _dlpWizRenderStep();
 }
@@ -2479,7 +3256,9 @@ async function _dlpWizRenderStep(){
 
   root.appendChild(screen);
 
-  if (step.type === 'outdoor_ref') {
+  if (step.type === 'preflight') {
+    _dlpWizRenderPreflight(content, step);
+  } else if (step.type === 'outdoor_ref') {
     _dlpWizRenderOutdoor(content);
   } else if (step.type === 'chamber_atm') {
     _dlpWizRenderChamberAtm(content, step);
@@ -2525,6 +3304,7 @@ function _dlpWizHeader(st, step, total, pct) {
 
 function _dlpWizStepShort(step) {
   if (!step) return 'Step';
+  if (step.type === 'preflight') return 'Ready';
   if (step.type === 'outdoor_ref') return 'Outdoor';
   if (step.type === 'chamber_atm') return 'Atmosphere';
   if (step.type === 'chamber_moisture') return 'Moisture';
@@ -2537,6 +3317,7 @@ function _dlpWizStepShort(step) {
 
 function _dlpWizStepHelp(step) {
   if (!step) return '';
+  if (step.type === 'preflight') return 'Confirm today has chambers, meter points, equipment, and a clean offline queue before walking the job.';
   if (step.type === 'outdoor_ref') return 'Capture the outdoor baseline before comparing chamber drying conditions.';
   if (step.type === 'chamber_atm') return 'Log chamber air conditions so grain depression and dew point checks have context.';
   if (step.type === 'chamber_moisture') return 'Capture repeatable meter readings at the same points every visit.';
@@ -2544,6 +3325,85 @@ function _dlpWizStepHelp(step) {
   if (step.type === 'photos') return 'Add progress photos, equipment placement, anomalies, and source-area documentation.';
   if (step.type === 'done') return 'Review today before leaving the job.';
   return '';
+}
+
+
+function dlpVisitSetupEmpty(summary) {
+  const wrap = el('section', {class:'dlp-visit-preflight'},
+    el('div', {class:'dlp-visit-kicker'}, 'Daily visit setup'),
+    el('div', {class:'dlp-visit-title'}, 'Build chambers first'),
+    el('div', {class:'dlp-visit-sub'}, 'Daily Visit needs at least one active drying chamber so readings, equipment checks, and progress photos stay tied to the right area.')
+  );
+  wrap.appendChild(el('div', {class:'dlp-visit-preflight-grid'},
+    dlpVisitMetric('Rooms', summary.rooms_count || 0, 'job areas'),
+    dlpVisitMetric('Chambers', summary.zones_count || 0, 'active drying zones', 'warn'),
+    dlpVisitMetric('Meter points', summary.points_count || 0, 'repeatable checks')
+  ));
+  wrap.appendChild(el('div', {class:'dlp-visit-alert'},
+    el('strong', {}, 'Next move'),
+    el('span', {}, 'Open Buildout Workspace, create chambers, then add surfaces and reading points.')
+  ));
+  wrap.appendChild(el('div', {class:'dlp-visit-action-row'},
+    dlpVisitAction('Buildout Workspace', renderDlpBuildoutStudio, true),
+    dlpVisitAction('Room Readings', renderDlpRoomReadings),
+    dlpVisitAction('Dashboard', renderDrylogPro)
+  ));
+  return wrap;
+}
+
+
+function _dlpWizRenderPreflight(screen, step) {
+  const s = step.summary || {};
+  const missingPoints = (s.points_count || 0) === 0;
+  const noEquipment = (s.deploys_count || 0) === 0;
+  const queueCount = s.queue_count || 0;
+
+  screen.appendChild(el('div', {class:'dlp-visit-preflight-grid'},
+    dlpVisitMetric('Chambers', s.zones_count || 0, 'active today', (s.zones_count || 0) ? 'ok' : 'warn'),
+    dlpVisitMetric('Meter points', s.points_count || 0, 'repeatable readings', missingPoints ? 'warn' : 'ok'),
+    dlpVisitMetric('Equipment', s.deploys_count || 0, 'active units', noEquipment ? 'warn' : 'ok'),
+    dlpVisitMetric('Outdoor', s.outdoor_done ? 'Done' : 'Needed', 'baseline', s.outdoor_done ? 'ok' : 'todo'),
+    dlpVisitMetric('Offline queue', queueCount, 'waiting to sync', queueCount ? 'todo' : 'ok')
+  ));
+
+  if (missingPoints || noEquipment || queueCount) {
+    const alert = el('div', {class:'dlp-visit-alert'});
+    alert.appendChild(el('strong', {}, 'Before starting'));
+    const bits = [];
+    if (missingPoints) bits.push('add meter points');
+    if (noEquipment) bits.push('confirm deployed equipment');
+    if (queueCount) bits.push('sync queued field saves when service is available');
+    alert.appendChild(el('span', {}, bits.join(', ') + '.'));
+    screen.appendChild(alert);
+  } else {
+    screen.appendChild(el('div', {class:'dlp-visit-alert ok'},
+      el('strong', {}, 'Walk is ready'),
+      el('span', {}, 'The visit plan has chamber readings, equipment checks, and photo capture lined up.')
+    ));
+  }
+
+  screen.appendChild(el('div', {class:'dlp-visit-action-row'},
+    dlpVisitAction('Start Walk', _dlpWizAdvance, true),
+    dlpVisitAction('Buildout', renderDlpBuildoutStudio),
+    dlpVisitAction('Room Readings', renderDlpRoomReadings),
+    dlpVisitAction('Photos', renderDlpPhotos)
+  ));
+}
+
+
+function dlpVisitMetric(label, value, meta, state) {
+  return el('div', {class:'dlp-visit-preflight-card ' + (state || '')},
+    el('span', {}, label),
+    el('strong', {}, String(value)),
+    el('em', {}, meta || '')
+  );
+}
+
+
+function dlpVisitAction(label, onClick, primary) {
+  const b = el('button', {type:'button', class: primary ? 'dlp-visit-primary' : 'dlp-visit-secondary'}, label);
+  b.addEventListener('click', onClick);
+  return b;
 }
 
 
@@ -3479,6 +4339,13 @@ async function _dlpWizRenderDone(screen){
   const back = el('button',{style:'width:100%;padding:14px;background:#3b82f6;color:#fff;border-radius:10px;font-size:15px;font-weight:700;'},'Back to Dashboard');
   back.addEventListener('click', () => { __dlpWizState = null; renderDrylogPro(); });
   screen.appendChild(back);
+
+  screen.appendChild(el('div',{class:'dlp-visit-next-actions'},
+    dlpVisitAction('Room Readings', renderDlpRoomReadings),
+    dlpVisitAction('Photos', renderDlpPhotos),
+    dlpVisitAction('Report', renderDlpReportReview),
+    dlpVisitAction('Share', renderDlpSharePreview)
+  ));
 
   // Pull today's captures async (don't block the Done screen render)
   const today = new Date().toISOString().slice(0,10);
