@@ -488,7 +488,7 @@ function readingCollection(req, res, url, body, collection, maker) {
   return send404(res);
 }
 
-function attachments(req, res, id, url) {
+function attachments(req, res, id, url, body) {
   if (req.method === 'GET') {
     const claimId = Number(url.searchParams.get('claim_id') || 0);
     if (claimId) {
@@ -498,10 +498,15 @@ function attachments(req, res, id, url) {
     return sendOk(res, state.attachments.filter(a => a.entity_type === url.searchParams.get('entity_type') && a.entity_id === Number(url.searchParams.get('entity_id'))));
   }
   if (req.method === 'POST') {
+    const entityId = Number(url.searchParams.get('entity_id') || body.entity_id || 0);
     const row = {
-      id: nextId(), company_id: 1, entity_type: 'visit', entity_id: Number(url.searchParams.get('entity_id') || 0),
-      file_url: 'mock-photo.svg', original_name: 'mock-photo.svg', mime_type: 'image/svg+xml',
-      caption: 'Mock upload', uploaded_at: nowSql()
+      id: nextId(), company_id: 1, entity_type: body.entity_type || 'visit', entity_id: entityId,
+      file_url: body.file_url || 'mock-photo.svg',
+      original_name: body.original_name || 'mock-photo.svg',
+      mime_type: body.mime_type || 'image/svg+xml',
+      caption: body.caption || 'Mock upload',
+      claim_room_id: body.claim_room_id ? Number(body.claim_room_id) : null,
+      uploaded_at: nowSql()
     };
     state.attachments.push(row);
     return sendOk(res, row, 201);

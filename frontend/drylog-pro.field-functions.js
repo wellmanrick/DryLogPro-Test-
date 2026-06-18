@@ -103,6 +103,9 @@ async function renderDrylogPro(){
       grid.appendChild(b);
     }
     setup.appendChild(grid);
+    const buildBtn = el('button', { type: 'button', class: 'dlp-build-primary', style: 'margin-top:10px;' }, 'Open Buildout Workspace');
+    buildBtn.addEventListener('click', renderDlpBuildoutStudio);
+    setup.appendChild(buildBtn);
     screen.appendChild(setup);
     return;
   }
@@ -377,11 +380,13 @@ function buildDlpCommandScreen(ctx) {
     else renderDlpDryingProgress();
   });
   const secondary = el('div', { class: 'dlp-command-actions' },
+    dlpCommandButton('Buildout', zones.length + ' rooms/zones', renderDlpBuildoutStudio),
     dlpCommandButton('Photos', 'Capture', renderDlpPhotos),
     dlpCommandButton('Readings', 'Trends', renderDlpDryingProgress),
     dlpCommandButton('Sketch', 'CAD', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
     dlpCommandButton('Equipment', String(deploys.length), renderDlpEquipmentList),
-    dlpCommandButton('Report', taskPct + '%', renderDlpReportReview)
+    dlpCommandButton('Report', taskPct + '%', renderDlpReportReview),
+    dlpCommandButton('Share', 'Preview', renderDlpSharePreview)
   );
   primary.append(eyebrow, title, hint, mainAction, secondary);
 
@@ -475,16 +480,563 @@ function buildDlpCommandScreen(ctx) {
   }
 
   const bottom = el('nav', { class: 'dlp-bottom-actions' },
+    dlpBottomAction('Build', renderDlpBuildoutStudio),
     dlpBottomAction('Camera', renderDlpPhotos),
     dlpBottomAction('Readings', renderDlpDryingProgress),
     dlpBottomAction('Sketch', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
-    dlpBottomAction('Report', renderDlpReportReview)
+    dlpBottomAction('Report', renderDlpReportReview),
+    dlpBottomAction('Share', renderDlpSharePreview)
   );
 
   body.append(left, right);
   lower.append(queue, photoPanel);
   wrap.append(primary, metrics, body, lower, bottom);
   return wrap;
+}
+
+async function renderDlpBuildoutStudio() {
+  clear(); enableInactivity();
+  tcLiveSet({ current_screen: 'drylog-pro/buildout', current_job_id: selectedJob?.job_id || null }, 'DryLog PRO - Buildout');
+  root.appendChild(buildTopbar('Dashboard', renderDrylogPro, { showClockLink: true }));
+
+  const claim_id = selectedJob.job_id;
+  const screen = el('div', { class: 'screen dlp-buildout' });
+  screen.addEventListener('click', resetInactivity);
+  const loading = el('div', { class: 'dlp-empty' }, 'Loading buildout workspace...');
+  screen.appendChild(loading);
+  root.appendChild(screen);
+
+  let job = null, rooms = [], zones = [], standards = [], equipment = [], deploys = [], photos = [], workItems = [];
+  try {
+    [job, rooms, zones, standards, equipment, deploys, photos, workItems] = await Promise.all([
+      apiGet(`/jobs/${claim_id}`).catch(() => null),
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(() => []),
+      apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(() => []),
+      apiGet(`/claim-material-standards?claim_id=${claim_id}`).catch(() => []),
+      apiGet('/equipment').catch(() => []),
+      apiGet(`/equipment-deploys?job_id=${claim_id}`).catch(() => []),
+      apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(() => []),
+      apiGet(`/room-work-items?claim_id=${claim_id}`).catch(() => [])
+    ]);
+  } catch (err) {
+    loading.textContent = 'Could not load buildout: ' + (err.message || err);
+    return;
+  }
+
+  loading.remove();
+  const openZones = zones.filter(z => !z.is_closed);
+  const activeDeploys = deploys.filter(d => !d.returned_at);
+  const draft = dlpReadLocalDraft(claim_id);
+
+  screen.appendChild(el('section', { class: 'dlp-build-hero' },
+    el('div', {},
+      el('div', { class: 'dlp-build-kicker' }, 'Pre-database workspace'),
+      el('h1', {}, job?.customer || selectedJob.customer || 'DryLog claim'),
+      el('p', {}, 'Build the field file now: rooms, chambers, dry goals, reading points, equipment sizing, photo buckets, and QA readiness.')
+    ),
+    el('div', { class: 'dlp-build-score' },
+      el('strong', {}, String(dlpBuildoutScore({ rooms, zones, standards, deploys, photos, workItems, draft }))),
+      el('span', {}, 'readiness')
+    )
+  ));
+
+  screen.appendChild(el('section', { class: 'dlp-build-metrics' },
+    dlpBuildMetric('Rooms', rooms.length, rooms.length ? 'inventory started' : 'add affected rooms'),
+    dlpBuildMetric('Chambers', openZones.length, zones.length + ' total'),
+    dlpBuildMetric('Dry goals', standards.length, standards.length ? 'materials mapped' : 'set targets'),
+    dlpBuildMetric('Equipment', activeDeploys.length, activeDeploys.length ? 'deployed' : 'size/deploy')
+  ));
+
+  const grid = el('div', { class: 'dlp-build-grid' });
+  grid.append(
+    dlpBuildRoomsPanel(claim_id, rooms),
+    dlpBuildZonesPanel(claim_id, rooms, zones),
+    await dlpBuildQuickCapturePanel(claim_id, rooms, zones),
+    dlpBuildStandardsPanel(claim_id, standards),
+    await dlpBuildSurfacesPanel(claim_id, zones),
+    dlpBuildEquipmentPanel(claim_id, rooms, zones, equipment, activeDeploys),
+    dlpBuildShotListPanel(rooms, zones, photos),
+    dlpBuildQaPanel(claim_id, { rooms, zones, standards, deploys: activeDeploys, photos, workItems, draft })
+  );
+  screen.appendChild(grid);
+
+  const footer = el('section', { class: 'dlp-build-footer' },
+    dlpBuildFooterButton('Open Photos', renderDlpPhotos),
+    dlpBuildFooterButton('Open Sketch', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
+    dlpBuildFooterButton('Open Report', renderDlpReportReview),
+    dlpBuildFooterButton('Share Preview', renderDlpSharePreview)
+  );
+  screen.appendChild(footer);
+}
+
+function dlpBuildMetric(label, value, detail) {
+  return el('div', { class: 'dlp-build-metric' },
+    el('span', {}, label),
+    el('strong', {}, String(value)),
+    el('em', {}, detail || '')
+  );
+}
+
+function dlpBuildPanel(title, note, ...children) {
+  return el('section', { class: 'dlp-build-panel' },
+    el('div', { class: 'dlp-build-panel-head' },
+      el('div', {},
+        el('h2', {}, title),
+        note ? el('p', {}, note) : null
+      )
+    ),
+    ...children
+  );
+}
+
+function dlpBuildRoomsPanel(claimId, rooms) {
+  const name = el('input', { placeholder: 'Room name' });
+  const length = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Length ft' });
+  const width = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Width ft' });
+  const height = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Height ft', value: '8' });
+  const notes = el('textarea', { rows: 2, placeholder: 'Notes, affected walls, access limits' });
+  const quick = el('div', { class: 'dlp-build-chip-row' });
+  DLP_ROOM_PRESETS.slice(0, 8).forEach(label => {
+    const b = el('button', { type: 'button' }, label);
+    b.addEventListener('click', () => { name.value = label; });
+    quick.appendChild(b);
+  });
+  const save = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Add room');
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      await apiPost('/claim-rooms', {
+        claim_id: claimId,
+        name: name.value.trim() || 'Affected Room',
+        length_ft: Number(length.value || 12),
+        width_ft: Number(width.value || 10),
+        height_ft: Number(height.value || 8),
+        notes: notes.value.trim() || null
+      });
+      tcToast('Room added', 'info');
+      renderDlpBuildoutStudio();
+    } catch (err) {
+      tcToast('Room save failed: ' + (err.message || err), 'error');
+      save.disabled = false;
+    }
+  });
+  const list = el('div', { class: 'dlp-build-list' });
+  rooms.slice(0, 6).forEach(room => {
+    const card = el('button', { type: 'button', class: 'dlp-build-row' },
+      el('span', {}, room.name || ('Room ' + room.id)),
+      el('em', {}, `${room.length_ft || '?'} x ${room.width_ft || '?'} x ${room.height_ft || 8} ft`)
+    );
+    card.addEventListener('click', () => renderDlpRoomWorkLog(room));
+    list.appendChild(card);
+  });
+  return dlpBuildPanel('Rooms', 'Affected-area inventory used by photos, work logs, reports, and chamber mapping.',
+    quick,
+    el('div', { class: 'dlp-build-form four' }, name, length, width, height),
+    notes,
+    save,
+    list
+  );
+}
+
+function dlpBuildZonesPanel(claimId, rooms, zones) {
+  const name = el('input', { placeholder: 'Chamber name' });
+  const cat = dlpBuildSelect([['1', 'Category 1'], ['2', 'Category 2'], ['3', 'Category 3']], '2');
+  const cls = dlpBuildSelect([['1', 'Class 1'], ['2', 'Class 2'], ['3', 'Class 3'], ['4', 'Class 4']], '2');
+  const notes = el('textarea', { rows: 2, placeholder: 'Containment, barriers, pressure, access notes' });
+  const roomChecks = el('div', { class: 'dlp-build-check-grid' });
+  rooms.forEach(room => {
+    const cb = el('input', { type: 'checkbox', value: String(room.id) });
+    roomChecks.appendChild(el('label', {}, cb, el('span', {}, room.name || ('Room ' + room.id))));
+  });
+  const save = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Create chamber');
+  save.disabled = rooms.length === 0;
+  save.addEventListener('click', async () => {
+    const ids = Array.from(roomChecks.querySelectorAll('input:checked')).map(x => Number(x.value));
+    save.disabled = true;
+    try {
+      await apiPost('/drying-zones', {
+        claim_id: claimId,
+        name: name.value.trim() || 'Drying Chamber',
+        claim_room_ids: ids,
+        category_of_water: Number(cat.value),
+        class_of_water: Number(cls.value),
+        containment_notes: notes.value.trim() || null
+      });
+      tcToast('Chamber created', 'info');
+      renderDlpBuildoutStudio();
+    } catch (err) {
+      tcToast('Chamber save failed: ' + (err.message || err), 'error');
+      save.disabled = false;
+    }
+  });
+  const rows = el('div', { class: 'dlp-build-list' });
+  zones.slice(0, 5).forEach(zone => {
+    const row = el('button', { type: 'button', class: 'dlp-build-row' },
+      el('span', {}, zone.name || ('Chamber ' + zone.id)),
+      el('em', {}, `CAT ${zone.category_of_water || '-'} | Class ${zone.class_of_water || '-'} | ${(zone.claim_room_ids || []).length} rooms`)
+    );
+    row.addEventListener('click', () => renderDlpZoneDetail(zone.id));
+    rows.appendChild(row);
+  });
+  return dlpBuildPanel('Chambers', rooms.length ? 'Group rooms into drying volumes for readings, equipment, alerts, and reports.' : 'Add rooms first, then create a chamber.',
+    el('div', { class: 'dlp-build-form three' }, name, cat, cls),
+    roomChecks,
+    notes,
+    save,
+    rows
+  );
+}
+
+async function dlpBuildQuickCapturePanel(claimId, rooms, zones) {
+  const room = dlpBuildSelect(rooms.map(r => [String(r.id), r.name || ('Room ' + r.id)]), rooms[0]?.id ? String(rooms[0].id) : '');
+  const zone = dlpBuildSelect(zones.map(z => [String(z.id), z.name || ('Chamber ' + z.id)]), zones[0]?.id ? String(zones[0].id) : '');
+  const photoCaption = el('input', { placeholder: 'Photo caption', value: 'Source area / equipment placement' });
+  const workLabel = el('input', { placeholder: 'Work item', value: 'Removed wet baseboard and documented cavity' });
+  const temp = el('input', { type: 'number', step: '0.1', placeholder: 'Temp F', value: '74' });
+  const rh = el('input', { type: 'number', step: '0.1', placeholder: 'RH %', value: '48' });
+  const moisture = el('input', { type: 'number', step: '0.1', placeholder: 'Moisture', value: '18.2' });
+  const status = el('div', { class: 'dlp-build-capture-status' }, 'Use these to create realistic demo records fast.');
+
+  const photo = dlpBuildCaptureButton('Add mock photo', async () => {
+    const visitId = await _dlpEnsureVisit(claimId);
+    await apiPost('/entity-attachments?entity_id=' + encodeURIComponent(visitId), {
+      entity_type: 'visit',
+      entity_id: visitId,
+      caption: photoCaption.value.trim() || 'Job photo',
+      claim_room_id: room.value ? Number(room.value) : null,
+      file_url: 'mock-photo.svg',
+      original_name: 'mock-photo.svg',
+      mime_type: 'image/svg+xml'
+    });
+    status.textContent = 'Photo attached to today\'s visit.';
+  });
+
+  const atmos = dlpBuildCaptureButton('Log chamber atmosphere', async () => {
+    if (!zone.value) throw new Error('Create a chamber first.');
+    const visitId = await _dlpEnsureVisit(claimId);
+    await apiPost('/readings/zone-atmosphere', {
+      drying_zone_id: Number(zone.value),
+      visit_id: visitId,
+      temp_f: Number(temp.value || 0),
+      rh_pct: Number(rh.value || 0)
+    });
+    status.textContent = 'Atmosphere reading logged.';
+  });
+
+  const moist = dlpBuildCaptureButton('Log first moisture point', async () => {
+    if (!zone.value) throw new Error('Create a chamber first.');
+    const point = await dlpBuildFindFirstPoint(Number(zone.value));
+    if (!point) throw new Error('Add a surface and reading point first.');
+    const visitId = await _dlpEnsureVisit(claimId);
+    await apiPost('/readings/moisture', {
+      reading_point_id: point.id,
+      visit_id: visitId,
+      moisture_value: Number(moisture.value || 0),
+      moisture_unit: point.dry_goal_unit || '%MC'
+    });
+    status.textContent = 'Moisture reading logged to ' + (point.point_label || 'first point') + '.';
+  });
+
+  const work = dlpBuildCaptureButton('Log work item', async () => {
+    if (!room.value) throw new Error('Create a room first.');
+    const visitId = await _dlpEnsureVisit(claimId);
+    await apiPost('/room-work-items', {
+      claim_room_id: Number(room.value),
+      visit_id: visitId,
+      item_type: 'demo',
+      label: workLabel.value.trim() || 'Documented mitigation work',
+      qty: 1,
+      unit: 'ea',
+      notes: 'Added from Buildout quick capture.'
+    });
+    status.textContent = 'Work item logged.';
+  });
+
+  const refresh = el('button', { type: 'button', class: 'dlp-build-secondary' }, 'Refresh dashboard data');
+  refresh.addEventListener('click', renderDlpBuildoutStudio);
+
+  return dlpBuildPanel('Quick Capture', 'Create today\'s demo documentation without leaving the buildout flow.',
+    el('div', { class: 'dlp-build-form two' }, room, zone),
+    el('div', { class: 'dlp-build-form two' }, photoCaption, workLabel),
+    el('div', { class: 'dlp-build-form three' }, temp, rh, moisture),
+    el('div', { class: 'dlp-build-capture-grid' }, photo, atmos, moist, work),
+    status,
+    refresh
+  );
+}
+
+function dlpBuildCaptureButton(label, action) {
+  const btn = el('button', { type: 'button', class: 'dlp-build-capture-btn' }, label);
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = 'Saving...';
+    try {
+      await action();
+      tcToast(old + ' saved', 'info');
+    } catch (err) {
+      tcToast((err && err.message) || String(err), 'error');
+    }
+    btn.textContent = old;
+    btn.disabled = false;
+  });
+  return btn;
+}
+
+async function dlpBuildFindFirstPoint(zoneId) {
+  const surfaces = await apiGet('/claim-surfaces?drying_zone_id=' + encodeURIComponent(zoneId)).catch(() => []);
+  for (const surface of (Array.isArray(surfaces) ? surfaces : [])) {
+    const points = await apiGet('/reading-points?claim_surface_id=' + encodeURIComponent(surface.id)).catch(() => []);
+    if (Array.isArray(points) && points.length) {
+      return Object.assign({}, points[0], {
+        surface_label: surface.surface_label,
+        dry_goal_unit: surface.dry_goal_unit
+      });
+    }
+  }
+  return null;
+}
+
+function dlpBuildStandardsPanel(claimId, standards) {
+  const material = dlpBuildSelect(DLP_DRY_GOAL_CLASSES.map(x => [x.material, x.label]), 'drywall');
+  const goal = el('input', { type: 'number', step: '0.1', placeholder: 'Dry goal' });
+  const unit = dlpBuildSelect([['%MC', '%MC'], ['%WME', '%WME'], ['GPP', 'GPP']], '%MC');
+  const meter = dlpBuildSelect([['pin', 'Pin meter'], ['non-pin', 'Non-pin'], ['thermal', 'Thermal/IR'], ['', 'Not set']], 'pin');
+  material.addEventListener('change', () => {
+    const def = DLP_DRY_GOAL_CLASSES.find(x => x.material === material.value);
+    if (def) {
+      unit.value = def.unit || '%MC';
+      meter.value = def.meter_type || '';
+    }
+  });
+  const save = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Save dry goal');
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      await apiPost('/claim-material-standards', {
+        claim_id: claimId,
+        material: material.value,
+        dry_goal: Number(goal.value || 0),
+        dry_goal_unit: unit.value,
+        meter_type: meter.value || null
+      });
+      tcToast('Dry goal saved', 'info');
+      renderDlpBuildoutStudio();
+    } catch (err) {
+      tcToast('Dry goal failed: ' + (err.message || err), 'error');
+      save.disabled = false;
+    }
+  });
+  const rows = el('div', { class: 'dlp-build-token-list' });
+  standards.forEach(s => rows.appendChild(el('span', {}, `${s.material}: ${s.dry_goal}${s.dry_goal_unit || ''}`)));
+  return dlpBuildPanel('Material Goals', 'Set material targets once, then surfaces inherit those standards.',
+    el('div', { class: 'dlp-build-form four' }, material, goal, unit, meter),
+    save,
+    rows
+  );
+}
+
+async function dlpBuildSurfacesPanel(claimId, zones) {
+  const zone = dlpBuildSelect(zones.map(z => [String(z.id), z.name || ('Chamber ' + z.id)]), zones[0]?.id ? String(zones[0].id) : '');
+  const type = dlpBuildSelect(Object.keys(DLP_MATERIALS_BY_SURFACE_TYPE).map(x => [x, x]), 'wall');
+  const label = el('input', { placeholder: 'Surface label, ex: Sink wall' });
+  const material = el('input', { placeholder: 'Material, ex: drywall' });
+  const point = el('input', { placeholder: 'Point label, ex: P1' });
+  const location = el('input', { placeholder: 'Point notes, ex: 24 in AFF left stud bay' });
+  const save = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Add surface + point');
+  save.disabled = zones.length === 0;
+  save.addEventListener('click', async () => {
+    save.disabled = true;
+    try {
+      const surface = await apiPost('/claim-surfaces', {
+        drying_zone_id: Number(zone.value),
+        surface_type: type.value,
+        surface_label: label.value.trim() || type.value,
+        material: material.value.trim() || type.value
+      });
+      await apiPost('/reading-points', {
+        claim_surface_id: surface.id,
+        point_label: point.value.trim() || 'P1',
+        location_notes: location.value.trim() || null
+      });
+      tcToast('Reading point added', 'info');
+      renderDlpBuildoutStudio();
+    } catch (err) {
+      tcToast('Point save failed: ' + (err.message || err), 'error');
+      save.disabled = false;
+    }
+  });
+  const hint = zones.length ? 'Create repeatable meter points before daily readings.' : 'Create a chamber first.';
+  return dlpBuildPanel('Surfaces + Points', hint,
+    el('div', { class: 'dlp-build-form two' }, zone, type),
+    el('div', { class: 'dlp-build-form two' }, label, material),
+    el('div', { class: 'dlp-build-form two' }, point, location),
+    save
+  );
+}
+
+function dlpBuildEquipmentPanel(claimId, rooms, zones, equipment, activeDeploys) {
+  const length = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Length ft', value: rooms[0]?.length_ft || '' });
+  const width = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Width ft', value: rooms[0]?.width_ft || '' });
+  const height = el('input', { type: 'number', min: '1', step: '0.5', placeholder: 'Height ft', value: rooms[0]?.height_ft || '8' });
+  const cls = dlpBuildSelect([['1', 'Class 1'], ['2', 'Class 2'], ['3', 'Class 3'], ['4', 'Class 4']], String(zones[0]?.class_of_water || 2));
+  const out = el('div', { class: 'dlp-build-recommend' }, 'Enter dimensions to calculate rough equipment need.');
+  const calc = el('button', { type: 'button', class: 'dlp-build-secondary' }, 'Calculate need');
+  calc.addEventListener('click', async () => {
+    calc.disabled = true;
+    try {
+      const rec = await apiPost('/sizing/recommend', {
+        length_ft: Number(length.value || 0),
+        width_ft: Number(width.value || 0),
+        height_ft: Number(height.value || 8),
+        class_of_water: Number(cls.value)
+      });
+      out.textContent = `${rec.air_movers_recommended} air movers | ${rec.dehu_pints_per_day_recommended} PPD dehu capacity | ${rec.rationale}`;
+    } catch (err) {
+      out.textContent = 'Sizing failed: ' + (err.message || err);
+    }
+    calc.disabled = false;
+  });
+  const zone = dlpBuildSelect(zones.map(z => [String(z.id), z.name || ('Chamber ' + z.id)]), zones[0]?.id ? String(zones[0].id) : '');
+  const asset = dlpBuildSelect(equipment.map(e => [String(e.id), `${e.asset_tag || e.id} - ${e.type || 'Equipment'}`]), equipment[0]?.id ? String(equipment[0].id) : '');
+  const deploy = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Deploy selected asset');
+  deploy.disabled = !zones.length || !equipment.length;
+  deploy.addEventListener('click', async () => {
+    deploy.disabled = true;
+    try {
+      await apiPost('/equipment-deploys', { job_id: claimId, equipment_id: Number(asset.value), drying_zone_id: Number(zone.value) || null });
+      tcToast('Equipment deployed', 'info');
+      renderDlpBuildoutStudio();
+    } catch (err) {
+      tcToast('Deploy failed: ' + (err.message || err), 'error');
+      deploy.disabled = false;
+    }
+  });
+  const active = el('div', { class: 'dlp-build-token-list' });
+  activeDeploys.forEach(d => active.appendChild(el('span', {}, `${d.asset_tag || d.equipment_id}: ${d.type || 'equipment'}`)));
+  return dlpBuildPanel('Equipment Plan', 'Estimate need, then attach active equipment to the chamber record.',
+    el('div', { class: 'dlp-build-form four' }, length, width, height, cls),
+    calc,
+    out,
+    el('div', { class: 'dlp-build-form two' }, zone, asset),
+    deploy,
+    active
+  );
+}
+
+function dlpBuildShotListPanel(rooms, zones, photos) {
+  const imagePhotos = (photos || []).filter(p => /^image\//.test(String(p.mime_type || '')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name || p.file_url || '')));
+  const roomCounts = {};
+  imagePhotos.forEach(p => {
+    const rid = Number(p.claim_room_id || 0);
+    if (rid) roomCounts[rid] = (roomCounts[rid] || 0) + 1;
+  });
+  const rows = el('div', { class: 'dlp-build-shot-list' });
+  rows.appendChild(dlpBuildShotRow('Arrival / exterior', imagePhotos.some(p => /arrival|exterior|access/i.test(String(p.caption || p.original_name || ''))), 'Access, front elevation, loss area approach'));
+  rows.appendChild(dlpBuildShotRow('Source / cause', imagePhotos.some(p => /source|cause|leak|supply|drain/i.test(String(p.caption || p.original_name || ''))), 'Cause of loss and affected assembly'));
+  rows.appendChild(dlpBuildShotRow('Equipment layout', imagePhotos.some(p => /equipment|dehu|air mover|scrubber/i.test(String(p.caption || p.original_name || ''))), 'Show placement, cords, containment'));
+  rows.appendChild(dlpBuildShotRow('Sketch / meter context', zones.some(z => z.has_sketch), 'CAD or room sketch saved'));
+  rooms.slice(0, 6).forEach(room => {
+    rows.appendChild(dlpBuildShotRow(room.name || ('Room ' + room.id), (roomCounts[room.id] || 0) > 0, (roomCounts[room.id] || 0) + ' room photos'));
+  });
+  return dlpBuildPanel('Photo Shot List', 'A quick carrier-style checklist for the photos that make reports easier to defend.',
+    rows,
+    (() => {
+      const b = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Open photo hub');
+      b.addEventListener('click', renderDlpPhotos);
+      return b;
+    })()
+  );
+}
+
+function dlpBuildShotRow(label, done, detail) {
+  return el('div', { class: 'dlp-build-shot-row ' + (done ? 'done' : '') },
+    el('span', { class: 'dlp-build-shot-dot' }, done ? 'OK' : 'Need'),
+    el('div', {},
+      el('strong', {}, label),
+      el('em', {}, detail || '')
+    )
+  );
+}
+
+function dlpBuildQaPanel(claimId, ctx) {
+  const key = 'drylog_buildout_qa_' + claimId;
+  const saved = dlpReadLocalDraft(claimId);
+  const items = [
+    ['lossVerified', 'Source and category/class confirmed'],
+    ['roomsReady', 'Affected rooms and chambers mapped'],
+    ['dryGoals', 'Dry goals set for affected materials'],
+    ['pointsReady', 'Repeatable reading points created'],
+    ['equipmentReady', 'Equipment placement documented'],
+    ['photoBuckets', 'Arrival, source, equipment, and room photos started'],
+    ['reportNotes', 'Report notes drafted']
+  ];
+  let state = {};
+  try { state = JSON.parse(localStorage.getItem(key) || '{}'); } catch (err) { state = {}; }
+  const list = el('div', { class: 'dlp-build-qa' });
+  items.forEach(([id, label]) => {
+    const cb = el('input', { type: 'checkbox', checked: !!state[id] });
+    cb.addEventListener('change', () => {
+      state[id] = cb.checked;
+      localStorage.setItem(key, JSON.stringify(state));
+    });
+    list.appendChild(el('label', {}, cb, el('span', {}, label)));
+  });
+  const notes = el('textarea', { rows: 4, placeholder: 'Draft report notes, customer concerns, adjuster notes, offline reminders', value: saved.notes || '' });
+  const save = el('button', { type: 'button', class: 'dlp-build-primary' }, 'Save draft notes');
+  save.addEventListener('click', () => {
+    dlpWriteLocalDraft(claimId, { notes: notes.value, saved_at: new Date().toISOString() });
+    tcToast('Draft saved in this browser', 'info');
+    renderDlpBuildoutStudio();
+  });
+  const auto = el('div', { class: 'dlp-build-auto' },
+    dlpChecklistItem(ctx.rooms.length > 0, 'Rooms exist', ctx.rooms.length + ' rooms'),
+    dlpChecklistItem(ctx.zones.length > 0, 'Chambers exist', ctx.zones.length + ' chambers'),
+    dlpChecklistItem(ctx.standards.length > 0, 'Goals exist', ctx.standards.length + ' standards'),
+    dlpChecklistItem(ctx.photos.length > 0, 'Photos exist', ctx.photos.length + ' photos'),
+    dlpChecklistItem(ctx.deploys.length > 0, 'Equipment active', ctx.deploys.length + ' active')
+  );
+  return dlpBuildPanel('QA + Draft', 'Local checklist and notes for the online prototype before database storage.',
+    auto,
+    list,
+    notes,
+    save
+  );
+}
+
+function dlpBuildSelect(options, selected) {
+  const select = el('select', {});
+  (options || []).forEach(([value, label]) => select.appendChild(el('option', { value, selected: String(value) === String(selected) }, label)));
+  return select;
+}
+
+function dlpBuildFooterButton(label, onClick) {
+  const b = el('button', { type: 'button', class: 'dlp-build-footer-btn' }, label);
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function dlpReadLocalDraft(claimId) {
+  try { return JSON.parse(localStorage.getItem('drylog_buildout_draft_' + claimId) || '{}'); }
+  catch (err) { return {}; }
+}
+
+function dlpWriteLocalDraft(claimId, patch) {
+  const next = Object.assign({}, dlpReadLocalDraft(claimId), patch || {});
+  localStorage.setItem('drylog_buildout_draft_' + claimId, JSON.stringify(next));
+  return next;
+}
+
+function dlpBuildoutScore(ctx) {
+  let score = 0;
+  if (ctx.rooms.length) score += 15;
+  if (ctx.zones.length) score += 15;
+  if (ctx.standards.length) score += 15;
+  if ((ctx.deploys || []).length) score += 15;
+  if ((ctx.photos || []).length) score += 15;
+  if ((ctx.workItems || []).length) score += 10;
+  if (ctx.draft && ctx.draft.notes) score += 15;
+  return Math.min(100, score);
 }
 
 function dlpCommandButton(label, value, onClick) {
@@ -1645,6 +2197,217 @@ function dlpReportPacketTable(rows){
     el('span',{}, row.wet_area)
   )));
   return table;
+}
+
+async function renderDlpSharePreview(){
+  clear(); enableInactivity();
+  tcLiveSet({current_screen:'drylog-pro/share-preview', current_job_id:selectedJob?.job_id||null}, 'DryLog PRO - Share Preview');
+  root.appendChild(buildTopbar('Dashboard', renderDrylogPro, {showClockLink:true}));
+
+  const claim_id = selectedJob.job_id;
+  const screen = el('div',{class:'screen dlp-share'});
+  screen.addEventListener('click', resetInactivity);
+  const loading = el('div',{class:'dlp-empty'},'Building share preview...');
+  screen.appendChild(loading);
+  root.appendChild(screen);
+
+  let job=null, visits=[], rooms=[], zones=[], alerts=[], photos=[], workItems=[], deploys=[], moisture=[], atmos=[], dehu=[], standards=[];
+  try {
+    const [j,v,r,z,a,p,w,d,m,atm,dh,std] = await Promise.all([
+      apiGet(`/jobs/${claim_id}`).catch(()=>null),
+      apiGet(`/visits?job_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(()=>[]),
+      apiGet(`/alerts?claim_id=${claim_id}&state=open`).catch(()=>[]),
+      apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/room-work-items?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/equipment-deploys?job_id=${claim_id}&active=1`).catch(()=>[]),
+      apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/zone-atmosphere?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/dehu?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/claim-material-standards?claim_id=${claim_id}`).catch(()=>[]),
+    ]);
+    job=j||null; visits=Array.isArray(v)?v:[]; rooms=Array.isArray(r)?r:[]; zones=Array.isArray(z)?z:[];
+    alerts=Array.isArray(a)?a:[]; photos=Array.isArray(p)?p:[]; workItems=Array.isArray(w)?w:[];
+    deploys=Array.isArray(d)?d:[]; moisture=Array.isArray(m)?m:[]; atmos=Array.isArray(atm)?atm:[]; dehu=Array.isArray(dh)?dh:[]; standards=Array.isArray(std)?std:[];
+  } catch(e) {}
+
+  let surfaces=[], points=[], sketches=[];
+  try {
+    const surfaceLists = await Promise.all(zones.map(z => apiGet(`/claim-surfaces?drying_zone_id=${z.id}`).catch(()=>[])));
+    surfaces = surfaceLists.flat().filter(Boolean);
+    const pointLists = await Promise.all(surfaces.map(s => apiGet(`/reading-points?claim_surface_id=${s.id}`).catch(()=>[])));
+    points = pointLists.flat().filter(Boolean);
+    const sketchLists = await Promise.all(zones.map(z => apiGet(`/drying-zones/${z.id}/sketch-cad`).catch(()=>null)));
+    sketches = sketchLists.map((sk, i) => ({zone: zones[i], sketch: sk?.data || sk})).filter(x => x.sketch?.state_json);
+  } catch(e) {}
+  loading.remove();
+
+  const imagePhotos = photos.filter(p => /^image\//.test(String(p.mime_type||'')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name||p.file_url||'')));
+  const latestByPoint = {};
+  moisture.forEach(m => {
+    const key = String(m.reading_point_id || '');
+    if (key && (!latestByPoint[key] || String(m.reading_at || '') > String(latestByPoint[key].reading_at || ''))) latestByPoint[key] = m;
+  });
+  const latestMoisture = Object.values(latestByPoint);
+  const dryPoints = latestMoisture.filter(m => Number(m.is_dry_at_time || 0) === 1).length;
+  const openZones = zones.filter(z => !z.is_closed);
+  const cadRows = sketches.flatMap(x => dlpReportCadRowsFromState(x.sketch.state_json, x.zone));
+  const cadTotals = cadRows.reduce((acc, row) => {
+    acc.floor_sf += Number(row.floor_sf) || 0;
+    acc.wall_sf += Number(row.wall_sf) || 0;
+    return acc;
+  }, {floor_sf:0, wall_sf:0});
+  const checks = [
+    { label:'Rooms/chambers documented', done: rooms.length > 0 && zones.length > 0, meta:`${rooms.length} rooms / ${zones.length} chambers` },
+    { label:'Readings captured', done: moisture.length > 0 || atmos.length > 0, meta:`${moisture.length + atmos.length + dehu.length} readings` },
+    { label:'Photos attached', done: imagePhotos.length > 0, meta:`${imagePhotos.length} photos` },
+    { label:'Work performed logged', done: workItems.length > 0, meta:`${workItems.length} entries` },
+    { label:'Sketch/measurements included', done: cadRows.length > 0, meta: cadRows.length ? `${_dlpCadRound(cadTotals.floor_sf,1)} sf` : 'missing' },
+    { label:'Open alerts clear', done: alerts.length === 0, meta: alerts.length ? `${alerts.length} open` : 'clear' },
+  ];
+  const readyPct = Math.round(checks.filter(c=>c.done).length / checks.length * 100);
+  const shareSettings = dlpReadShareSettings(claim_id);
+  const sharePayload = {
+    generated_at: new Date().toISOString(),
+    audience: shareSettings.audience || 'Adjuster / customer',
+    claim: {
+      id: claim_id,
+      customer: job?.customer || selectedJob.customer || null,
+      address: job?.address || selectedJob.address || null,
+      claim_no: job?.claim_no || selectedJob.claim_no || null,
+      loss_type: job?.loss_type || 'Water mitigation',
+      source_of_loss: job?.source_of_loss || null,
+    },
+    summary: {
+      readiness: readyPct,
+      rooms: rooms.length,
+      chambers: zones.length,
+      open_chambers: openZones.length,
+      photos: imagePhotos.length,
+      moisture_readings: moisture.length,
+      atmosphere_readings: atmos.length,
+      active_equipment: deploys.length,
+      work_items: workItems.length,
+      measured_floor_sf: _dlpCadRound(cadTotals.floor_sf, 1),
+      measured_wall_sf: _dlpCadRound(cadTotals.wall_sf, 1),
+      dry_points: dryPoints,
+      current_points: latestMoisture.length,
+    },
+    note: shareSettings.note || '',
+    checks: checks.map(c => ({label:c.label, done:c.done, meta:c.meta})),
+  };
+
+  screen.appendChild(el('section',{class:'dlp-share-hero'},
+    el('div',{},
+      el('div',{class:'dlp-share-kicker'},'Share preview'),
+      el('h1',{}, job?.customer || selectedJob.customer || 'DryLog claim'),
+      el('p',{}, (job?.address || selectedJob.address || 'Address pending') + (job?.claim_no ? ' | Claim ' + job.claim_no : ''))
+    ),
+    el('div',{class:'dlp-share-score'}, el('strong',{}, readyPct + '%'), el('span',{}, 'send-ready'))
+  ));
+
+  const controls = el('section',{class:'dlp-share-controls'});
+  const audience = dlpBuildSelect([['Adjuster / customer','Adjuster / customer'],['Customer','Customer'],['Adjuster','Adjuster'],['Internal review','Internal review']], shareSettings.audience || 'Adjuster / customer');
+  const note = el('textarea',{rows:3,placeholder:'Short note for the share preview', value:shareSettings.note || dlpDefaultShareNote(job, rooms, zones, deploys)});
+  const save = el('button',{type:'button',class:'dlp-build-primary'},'Save share note');
+  save.addEventListener('click',()=>{
+    dlpWriteShareSettings(claim_id,{audience:audience.value,note:note.value});
+    tcToast('Share preview note saved', 'info');
+    renderDlpSharePreview();
+  });
+  const copy = el('button',{type:'button',class:'dlp-build-secondary'},'Copy demo link');
+  copy.addEventListener('click', async ()=>{
+    const url = window.location.origin + window.location.pathname + '?job=' + encodeURIComponent(claim_id) + '&view=share-preview';
+    try { await navigator.clipboard.writeText(url); tcToast('Demo link copied', 'info'); }
+    catch(e){ prompt('Copy demo link', url); }
+  });
+  const download = el('button',{type:'button',class:'dlp-build-secondary'},'Download share JSON');
+  download.addEventListener('click',()=>_dlpCadDownloadJson('drylog-share-preview.json', sharePayload));
+  controls.append(
+    el('div',{class:'dlp-share-control-main'}, el('label',{},'Audience', audience), note),
+    el('div',{class:'dlp-share-control-actions'}, save, copy, download)
+  );
+  screen.appendChild(controls);
+
+  screen.appendChild(el('section',{class:'dlp-share-stats'},
+    dlpShareStat('Rooms', String(rooms.length), `${zones.length} chamber${zones.length===1?'':'s'}`),
+    dlpShareStat('Photos', String(imagePhotos.length), 'documented'),
+    dlpShareStat('Readings', String(moisture.length + atmos.length + dehu.length), dryPoints + '/' + latestMoisture.length + ' dry points'),
+    dlpShareStat('Equipment', String(deploys.length), 'active'),
+    dlpShareStat('Measured', cadRows.length ? _dlpCadRound(cadTotals.floor_sf,1) + ' sf' : 'Pending', cadRows.length ? 'floor area' : 'CAD needed')
+  ));
+
+  const body = el('section',{class:'dlp-share-body'});
+  const publicSummary = el('div',{class:'dlp-share-card wide'});
+  publicSummary.appendChild(dlpProgressPanelHead('Status update', shareSettings.audience || 'Adjuster / customer'));
+  dlpShareSummaryLines({job, rooms, zones, openZones, deploys, workItems, imagePhotos, moisture, atmos, latestMoisture, dryPoints, cadRows, cadTotals, note: note.value}).forEach(line => publicSummary.appendChild(el('p',{},line)));
+  body.appendChild(publicSummary);
+
+  const readiness = el('div',{class:'dlp-share-card'});
+  readiness.appendChild(dlpProgressPanelHead('Send checklist', checks.filter(c=>!c.done).length ? checks.filter(c=>!c.done).length + ' items light' : 'Looks complete'));
+  checks.forEach(c => readiness.appendChild(dlpReportCheck(c.done, c.label, c.meta)));
+  body.appendChild(readiness);
+
+  const timeline = el('div',{class:'dlp-share-card'});
+  timeline.appendChild(dlpProgressPanelHead('Recent activity', visits.length ? visits.length + ' visit records' : 'No visits yet'));
+  const activity = dlpShareActivity(visits, imagePhotos, workItems, moisture, atmos).slice(0, 7);
+  if (!activity.length) timeline.appendChild(el('div',{class:'dlp-command-empty'},'No activity has been captured yet.'));
+  activity.forEach(item => timeline.appendChild(el('div',{class:'dlp-share-activity'}, el('strong',{},item.title), el('span',{},item.meta))));
+  body.appendChild(timeline);
+
+  const gallery = el('div',{class:'dlp-share-card wide'});
+  gallery.appendChild(dlpProgressPanelHead('Photo preview', imagePhotos.length ? imagePhotos.length + ' available' : 'No photos yet'));
+  if (imagePhotos.length) {
+    gallery.appendChild(el('div',{class:'dlp-share-gallery'}, ...imagePhotos.slice(0, 6).map(p => el('figure',{},
+      el('img',{src:p.file_url ? ('/' + String(p.file_url).replace(/^\/+/, '')) : 'mock-photo.svg', alt:p.caption || 'Job photo'}),
+      el('figcaption',{}, p.caption || p.original_name || 'Job photo')
+    ))));
+  } else {
+    gallery.appendChild(el('div',{class:'dlp-command-empty'},'Add arrival, source, equipment, and room photos from Buildout or Photos.'));
+  }
+  body.appendChild(gallery);
+
+  screen.appendChild(body);
+}
+
+function dlpShareStat(label, value, meta){
+  return el('div',{class:'dlp-share-stat'}, el('span',{},label), el('strong',{},value), el('em',{},meta));
+}
+
+function dlpDefaultShareNote(job, rooms, zones, deploys){
+  return `Drying documentation is in progress for ${job?.customer || selectedJob.customer || 'this claim'}. Current affected areas include ${rooms.length || 'pending'} room${rooms.length===1?'':'s'} across ${zones.length || 'pending'} drying chamber${zones.length===1?'':'s'}, with ${deploys.length} active equipment deployment${deploys.length===1?'':'s'}.`;
+}
+
+function dlpShareSummaryLines(ctx){
+  const note = (ctx.note || '').trim();
+  return [
+    note || dlpDefaultShareNote(ctx.job, ctx.rooms, ctx.zones, ctx.deploys),
+    `${ctx.imagePhotos.length} photo${ctx.imagePhotos.length===1?'':'s'} and ${ctx.workItems.length} work log entr${ctx.workItems.length===1?'y':'ies'} are currently included in the file.`,
+    `${ctx.moisture.length} moisture reading${ctx.moisture.length===1?'':'s'} and ${ctx.atmos.length} chamber atmosphere reading${ctx.atmos.length===1?'':'s'} have been captured. ${ctx.latestMoisture.length ? ctx.dryPoints + ' of ' + ctx.latestMoisture.length + ' current point' + (ctx.latestMoisture.length===1?' is':'s are') + ' at or below goal.' : 'Moisture point trends are pending.'}`,
+    ctx.cadRows.length ? `Sketch measurements currently show ${_dlpCadRound(ctx.cadTotals.floor_sf,1)} floor sf and ${_dlpCadRound(ctx.cadTotals.wall_sf,1)} wall sf documented.` : 'Sketch measurements are not attached yet.'
+  ];
+}
+
+function dlpShareActivity(visits, photos, workItems, moisture, atmos){
+  const rows = [];
+  visits.forEach(v => rows.push({title:'Visit created', meta:v.visit_date || v.created_at || ''}));
+  photos.forEach(p => rows.push({title:'Photo added', meta:[p.caption || p.original_name || 'Job photo', p.uploaded_at].filter(Boolean).join(' | ')}));
+  workItems.forEach(w => rows.push({title:'Work logged', meta:[w.label || w.notes || 'Work item', w.created_at].filter(Boolean).join(' | ')}));
+  moisture.forEach(m => rows.push({title:'Moisture reading', meta:[m.moisture_value != null ? m.moisture_value + ' ' + (m.moisture_unit || '%MC') : null, m.reading_at].filter(Boolean).join(' | ')}));
+  atmos.forEach(a => rows.push({title:'Atmosphere reading', meta:[a.temp_f != null ? a.temp_f + 'F / ' + a.rh_pct + '% RH' : null, a.reading_at].filter(Boolean).join(' | ')}));
+  return rows.sort((a,b)=>String(b.meta || '').localeCompare(String(a.meta || '')));
+}
+
+function dlpReadShareSettings(claimId){
+  try { return JSON.parse(localStorage.getItem('drylog_share_preview_' + claimId) || '{}'); }
+  catch(e) { return {}; }
+}
+
+function dlpWriteShareSettings(claimId, patch){
+  const next = Object.assign({}, dlpReadShareSettings(claimId), patch || {});
+  localStorage.setItem('drylog_share_preview_' + claimId, JSON.stringify(next));
+  return next;
 }
 
 
