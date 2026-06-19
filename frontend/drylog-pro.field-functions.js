@@ -2403,10 +2403,15 @@ async function renderDlpReportReview(){
   const firstVisit = visits.map(v => v.visit_date).sort()[0] || '';
   const lastVisit = visits.map(v => v.visit_date).sort().slice(-1)[0] || '';
   const narrativeLines = dlpReportNarrativeLines({job, rooms, zones, surfaces, latestMoisture, imagePhotos, deploys, blockers, cadRows, cadTotals});
+  const handoff = dlpReportHandoffSummary({
+    score, blockers, alerts, rooms, zones, visits, imagePhotos, proofStats,
+    workItems, scopeTotals, deploys, dehu, moisture, atmos, latestMoisture,
+    points, cadRows, cadTotals
+  });
   const reportPackage = dlpBuildReportPackage({
     job, visits, rooms, zones, tasks, alerts, imagePhotos, workItems, deploys,
     moisture, atmos, dehu, standards, surfaces, points, checks, score,
-    cadRows, cadTotals, narrativeLines
+    cadRows, cadTotals, narrativeLines, handoff
   });
 
   screen.appendChild(el('section',{class:'dlp-report-hero'},
@@ -2434,6 +2439,7 @@ async function renderDlpReportReview(){
     dlpReportStat('Tasks', `${tasksDone}/${tasks.length}`, 'workflow complete')
   ));
   screen.appendChild(dlpReportProofPanel(proofStats, photoProof));
+  screen.appendChild(dlpReportHandoffPanel(handoff));
 
   screen.appendChild(dlpReportCloseoutPath({
     score, blockers, alerts, rooms, zones, sketches, cadRows, surfaces,
@@ -2508,6 +2514,7 @@ async function renderDlpReportReview(){
     dlpPacketMini('Readings', String(moisture.length + atmos.length + dehu.length), 'field data'),
     dlpPacketMini('Sketch', cadRows.length ? `${_dlpCadRound(cadTotals.floor_sf,1)} sf` : 'Missing', cadRows.length ? 'measured floor' : 'needs CAD')
   ));
+  packet.appendChild(dlpPacketSection('Executive Handoff', [dlpPacketHandoff(handoff)]));
   if (dlpStudioSectionOn(studio, 'narrative')) packet.appendChild(dlpPacketSection('Narrative', narrativeLines.map(line => el('p',{}, line))));
   if (dlpStudioSectionOn(studio, 'sketch')) packet.appendChild(dlpPacketSection('Sketch Measurements',
     cadRows.length
@@ -2537,6 +2544,49 @@ async function renderDlpReportReview(){
 
 function dlpReportStat(label, value, meta) {
   return el('div',{class:'dlp-report-stat'}, el('span',{},label), el('strong',{},value), el('em',{},meta));
+}
+
+function dlpReportHandoffSummary(ctx){
+  const blockers = ctx.blockers || [];
+  const score = Number(ctx.score || 0);
+  const scopeOpen = Number(ctx.scopeTotals?.open || 0);
+  const dehuCount = (ctx.dehu || []).length;
+  const readingCount = (ctx.moisture || []).length + (ctx.atmos || []).length + dehuCount;
+  const status = score >= 90 && !blockers.length ? 'Ready to send' : score >= 75 ? 'Office review' : 'Field cleanup';
+  const actions = [];
+  if (blockers.length) blockers.slice(0, 5).forEach(b => actions.push({label:b.label, meta:b.meta || 'review before send', state:'todo'}));
+  if (scopeOpen) actions.push({label:'Close open scope decisions', meta:scopeOpen + ' open decisions', state:'todo'});
+  if ((ctx.proofStats?.score || 0) < 70) actions.push({label:'Strengthen photo proof', meta:(ctx.proofStats?.score || 0) + '% photo coverage', state:'todo'});
+  if ((ctx.deploys || []).length && !dehuCount) actions.push({label:'Add dehu performance proof', meta:'intake/exhaust readings recommended', state:'todo'});
+  if (!actions.length) actions.push({label:'Packet ready for office review', meta:'download JSON or print/export PDF', state:'done'});
+  const highlights = [
+    {label:'Rooms', value:String((ctx.rooms || []).length), meta:(ctx.zones || []).length + ' chambers'},
+    {label:'Photos', value:String((ctx.imagePhotos || []).length), meta:(ctx.proofStats?.score || 0) + '% proof'},
+    {label:'Readings', value:String(readingCount), meta:(ctx.latestMoisture || []).length + ' current points'},
+    {label:'Sketch', value:ctx.cadRows?.length ? String(_dlpCadRound(ctx.cadTotals?.floor_sf || 0, 1)) : 'Missing', meta:ctx.cadRows?.length ? 'floor sf' : 'needs CAD'},
+    {label:'Scope', value:String(ctx.scopeTotals?.count || 0), meta:scopeOpen ? scopeOpen + ' open' : 'clean'},
+    {label:'Equipment', value:String((ctx.deploys || []).length), meta:dehuCount + ' dehu checks'}
+  ];
+  return {status, score, actions, highlights};
+}
+
+function dlpReportHandoffPanel(handoff){
+  return el('section',{class:'dlp-report-handoff'},
+    el('div',{class:'dlp-report-handoff-head'},
+      el('div',{}, el('span',{},'Office handoff'), el('strong',{}, handoff.status), el('em',{}, handoff.actions.length ? handoff.actions[0].meta : 'Ready')),
+      el('b',{}, handoff.score + '%')
+    ),
+    el('div',{class:'dlp-report-handoff-grid'}, ...handoff.highlights.map(h => el('div',{class:'dlp-report-handoff-tile'},
+      el('span',{}, h.label),
+      el('strong',{}, h.value),
+      el('em',{}, h.meta)
+    ))),
+    el('div',{class:'dlp-report-handoff-actions'}, ...handoff.actions.map(a => el('div',{class:'dlp-report-handoff-action ' + (a.state || 'todo')},
+      el('span',{}, a.state === 'done' ? 'Ready' : 'Action'),
+      el('strong',{}, a.label),
+      el('em',{}, a.meta)
+    )))
+  );
 }
 
 function dlpReportProofPanel(stats, photoProof){
@@ -2759,6 +2809,7 @@ function dlpBuildReportPackage(ctx){
       },
       rooms: ctx.cadRows || [],
     },
+    handoff: ctx.handoff || null,
     narrative: ctx.narrativeLines || [],
   };
 }
@@ -3049,6 +3100,25 @@ async function renderDlpDemoWalkthrough(){
 
 function dlpPacketMini(label, value, meta){
   return el('div',{class:'dlp-packet-mini'}, el('span',{},label), el('strong',{},value), el('em',{},meta));
+}
+
+function dlpPacketHandoff(handoff){
+  return el('div',{class:'dlp-packet-handoff'},
+    el('div',{class:'dlp-packet-handoff-status'},
+      el('span',{},'Status'),
+      el('strong',{}, handoff.status),
+      el('em',{}, handoff.score + '% readiness')
+    ),
+    el('div',{class:'dlp-packet-handoff-grid'}, ...handoff.highlights.map(h => el('div',{},
+      el('span',{}, h.label),
+      el('strong',{}, h.value),
+      el('em',{}, h.meta)
+    ))),
+    el('div',{class:'dlp-packet-handoff-actions'},
+      el('strong',{},'Office actions'),
+      ...handoff.actions.map(a => el('p',{}, `${a.label}: ${a.meta}`))
+    )
+  );
 }
 
 

@@ -3945,6 +3945,132 @@ button[style*="fef2f2"] {
   gap: 7px;
 }
 
+.dlp-report-handoff {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #c9d6dc;
+  border-radius: var(--dlp-radius);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(241,247,248,.94));
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-report-handoff-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.dlp-report-handoff-head span,
+.dlp-report-handoff-action span {
+  color: var(--dlp-cyan);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.dlp-report-handoff-head strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--dlp-ink);
+  font-size: 26px;
+  font-weight: 950;
+}
+
+.dlp-report-handoff-head em {
+  display: block;
+  margin-top: 5px;
+  color: var(--dlp-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.dlp-report-handoff-head > b {
+  display: grid;
+  width: 86px;
+  height: 86px;
+  place-items: center;
+  border: 1px solid #bfe7d4;
+  border-radius: 999px;
+  background: #f3fbf7;
+  color: var(--dlp-green);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.dlp-report-handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dlp-report-handoff-tile,
+.dlp-report-handoff-action {
+  display: grid;
+  gap: 4px;
+  padding: 9px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-report-handoff-tile span,
+.dlp-report-handoff-tile strong,
+.dlp-report-handoff-tile em,
+.dlp-report-handoff-action strong,
+.dlp-report-handoff-action em {
+  overflow: hidden;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dlp-report-handoff-tile span {
+  color: var(--dlp-muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.dlp-report-handoff-tile strong {
+  color: var(--dlp-ink);
+  font-size: 22px;
+  font-weight: 950;
+}
+
+.dlp-report-handoff-tile em,
+.dlp-report-handoff-action em {
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.dlp-report-handoff-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.dlp-report-handoff-action.done {
+  border-color: #bfe7d4;
+  background: #f3fbf7;
+}
+
+.dlp-report-handoff-action.todo {
+  border-color: #ead7ad;
+  background: #fffaf0;
+}
+
+.dlp-report-handoff-action strong {
+  color: var(--dlp-ink);
+  font-size: 13px;
+  font-weight: 950;
+}
+
 .dlp-report-closeout {
   display: grid;
   gap: 12px;
@@ -4324,6 +4450,85 @@ button[style*="fef2f2"] {
   font-size: 11px;
   font-style: normal;
   font-weight: 820;
+}
+
+.dlp-packet-handoff {
+  display: grid;
+  gap: 10px;
+}
+
+.dlp-packet-handoff-status {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #f8fbfb;
+}
+
+.dlp-packet-handoff-status span,
+.dlp-packet-handoff-grid span {
+  color: var(--dlp-muted);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.dlp-packet-handoff-status strong {
+  color: var(--dlp-ink);
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.dlp-packet-handoff-status em,
+.dlp-packet-handoff-grid em {
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.dlp-packet-handoff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dlp-packet-handoff-grid > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-packet-handoff-grid strong {
+  color: var(--dlp-ink);
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.dlp-packet-handoff-actions {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-packet-handoff-actions > strong {
+  color: var(--dlp-ink);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.dlp-packet-handoff-actions p {
+  margin: 0;
+  color: var(--dlp-muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .dlp-packet-section {
@@ -7229,13 +7434,16 @@ img {
   .dlp-report-stats,
   .dlp-report-proof-head,
   .dlp-report-proof-grid,
+  .dlp-report-handoff-head,
+  .dlp-report-handoff-grid,
   .dlp-report-closeout-head,
   .dlp-report-closeout-grid,
   .dlp-report-body {
     grid-template-columns: 1fr;
   }
 
-  .dlp-report-closeout-score {
+  .dlp-report-closeout-score,
+  .dlp-report-handoff-head > b {
     width: 84px;
     height: 84px;
     justify-self: start;
@@ -7369,7 +7577,8 @@ img {
   }
 
   .dlp-packet-cover,
-  .dlp-packet-grid {
+  .dlp-packet-grid,
+  .dlp-packet-handoff-grid {
     grid-template-columns: 1fr;
   }
 
