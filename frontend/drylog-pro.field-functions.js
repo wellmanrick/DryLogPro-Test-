@@ -406,6 +406,18 @@ function buildDlpCommandScreen(ctx) {
     dlpMetric('Photos', String(photoCount), photoCount ? 'Filed to visit' : 'Need arrival photos', Math.min(100, photoCount * 18)),
     dlpMetric('Dry goals', String(goalsSet), goalsSet ? 'Standards set' : 'Missing targets', goalsSet ? 100 : 0)
   );
+  const pulse = dlpCommandPulsePanel({
+    taskPct,
+    zones,
+    alertsOpen,
+    deploys,
+    moistureAll,
+    photos,
+    workItems,
+    standards,
+    visits: ctx.visits || [],
+    rooms: ctx.rooms || []
+  });
 
   const body = el('div', { class: 'dlp-command-body' });
   const left = el('section', { class: 'dlp-command-panel dlp-command-zones' });
@@ -514,8 +526,42 @@ function buildDlpCommandScreen(ctx) {
 
   body.append(left, right);
   lower.append(queue, photoPanel);
-  wrap.append(primary, metrics, body, story, lower, bottom);
+  wrap.append(primary, metrics, pulse, body, story, lower, bottom);
   return wrap;
+}
+
+function dlpCommandPulsePanel(ctx){
+  const photos = ctx.photos || [];
+  const imagePhotos = photos.filter(p => /^image\//.test(String(p.mime_type || '')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name || p.file_url || '')));
+  const workItems = ctx.workItems || [];
+  const scopeTotals = dlpScopeTotals(workItems);
+  const checks = [
+    {label:'Rooms built', done:(ctx.rooms || []).length > 0, meta:(ctx.rooms || []).length + ' rooms', action:'Buildout', onClick:renderDlpBuildoutStudio},
+    {label:'Drying active', done:(ctx.deploys || []).length > 0, meta:(ctx.deploys || []).length + ' active equipment', action:'Equipment', onClick:renderDlpEquipmentList},
+    {label:'Readings started', done:(ctx.moistureAll || []).length > 0, meta:(ctx.moistureAll || []).length + ' readings', action:'Readings', onClick:renderDlpRoomReadings},
+    {label:'Photo proof', done:imagePhotos.length >= 6, meta:imagePhotos.length + ' photos', action:'Photos', onClick:renderDlpPhotos},
+    {label:'Scope clean', done:scopeTotals.count > 0 && scopeTotals.open === 0, meta:scopeTotals.open ? scopeTotals.open + ' open decisions' : scopeTotals.count + ' lines', action:'Scope', onClick:renderDlpScopeReview},
+    {label:'Report ready', done:ctx.taskPct >= 80 && !(ctx.alertsOpen || []).length, meta:(ctx.alertsOpen || []).length ? (ctx.alertsOpen || []).length + ' alerts' : ctx.taskPct + '% tasks', action:'Report', onClick:renderDlpReportReview}
+  ];
+  const ready = checks.filter(c => c.done).length;
+  const closeout = el('button',{type:'button'},'Closeout');
+  closeout.addEventListener('click', renderDlpCloseoutWorkflow);
+  return el('section',{class:'dlp-command-pulse'},
+    el('div',{class:'dlp-command-pulse-head'},
+      el('div',{}, el('span',{},'Field polish'), el('strong',{}, ready + '/' + checks.length + ' ready')),
+      closeout
+    ),
+    el('div',{class:'dlp-command-pulse-grid'}, ...checks.map(check => {
+      const b = el('button',{type:'button',class:'dlp-command-pulse-card ' + (check.done ? 'done' : 'todo')},
+        el('span',{}, check.done ? 'Ready' : 'Needs work'),
+        el('strong',{}, check.label),
+        el('em',{}, check.meta),
+        el('b',{}, check.action)
+      );
+      b.addEventListener('click', check.onClick);
+      return b;
+    }))
+  );
 }
 
 async function renderDlpBuildoutStudio() {
@@ -1845,6 +1891,7 @@ async function renderDlpDryingProgress(){
     dlpProgressMetric('Latest GPP', latestGpp, latestAtmos ? 'zone atmosphere' : 'no atmosphere'),
     dlpProgressMetric('Equipment', String(deploys.length), 'active on site')
   ));
+  screen.appendChild(dlpEquipmentPerformancePanel(deploys, zones, dehu));
 
   const priorities = dlpProgressPriorities({
     zones, openZones, points, latestMoisture, standards, atmos, deploys, dehu, dryPct
@@ -2191,6 +2238,60 @@ function dlpProgressGap(done, label, meta) {
 }
 
 
+function dlpEquipmentPerformancePanel(deploys, zones, dehuReadings){
+  const active = Array.isArray(deploys) ? deploys : [];
+  const dehus = active.filter(d => /dehu|dehumid/i.test(String(d.type || '')));
+  const zoneName = {};
+  (zones || []).forEach(z => { zoneName[z.id] = z.name || ('Chamber ' + z.id); });
+  const latestByDeploy = {};
+  (dehuReadings || []).forEach(row => {
+    const id = String(row.equipment_deploy_id || row.deploy_id || '');
+    if (!id) return;
+    if (!latestByDeploy[id] || String(row.reading_at || '') > String(latestByDeploy[id].reading_at || '')) latestByDeploy[id] = row;
+  });
+  const checked = dehus.filter(d => latestByDeploy[String(d.id)]).length;
+  const healthy = dehus.filter(d => Number(latestByDeploy[String(d.id)]?.grain_depression || 0) >= 20).length;
+  const panel = el('section',{class:'dlp-equip-performance'},
+    el('div',{class:'dlp-equip-performance-head'},
+      el('div',{}, el('span',{},'Equipment performance'), el('strong',{}, dehus.length ? `${checked}/${dehus.length} dehus checked` : `${active.length} active units`), el('em',{}, dehus.length ? `${healthy} healthy grain depression reading${healthy===1?'':'s'}` : 'Deploy dehus to track drying performance.')),
+      (() => { const b=el('button',{type:'button'},'Daily Visit'); b.addEventListener('click',renderDlpDailyVisitWizard); return b; })()
+    ),
+    el('div',{class:'dlp-equip-performance-grid'},
+      dlpEquipPerfTile('Active units', active.length, 'on site', active.length ? 'done' : 'todo'),
+      dlpEquipPerfTile('Dehus', dehus.length, 'need proof', dehus.length ? 'done' : 'todo'),
+      dlpEquipPerfTile('Checked', checked, 'latest readings', checked >= dehus.length && dehus.length ? 'done' : 'todo'),
+      dlpEquipPerfTile('Healthy drop', healthy, '20+ gpp target', healthy ? 'done' : 'todo')
+    )
+  );
+  const rows = el('div',{class:'dlp-equip-performance-rows'});
+  if (!dehus.length) {
+    rows.appendChild(el('div',{class:'dlp-command-empty'},'No active dehumidifiers are deployed yet. Add or deploy units, then capture intake/exhaust readings.'));
+  }
+  dehus.slice(0, 6).forEach(unit => {
+    const latest = latestByDeploy[String(unit.id)];
+    const gd = Number(latest?.grain_depression || 0);
+    const state = !latest ? 'todo' : gd >= 20 ? 'done' : 'warn';
+    const label = [unit.asset_tag, unit.type, unit.model].filter(Boolean).join(' - ') || ('Unit ' + unit.id);
+    const row = el('button',{type:'button',class:'dlp-equip-performance-row ' + state},
+      el('div',{}, el('strong',{}, label), el('span',{}, zoneName[unit.drying_zone_id] || 'No chamber assigned')),
+      el('em',{}, latest ? `${gd.toFixed(1)} gpp drop` : 'needs reading'),
+      el('b',{}, latest ? dlpGrainGuide(gd) : 'Capture')
+    );
+    row.addEventListener('click', () => renderDlpDehuCapture({equipment_deploy_id:unit.id, drying_zone_id:unit.drying_zone_id || null, label}));
+    rows.appendChild(row);
+  });
+  panel.appendChild(rows);
+  return panel;
+}
+
+function dlpEquipPerfTile(label, value, meta, state){
+  return el('div',{class:'dlp-equip-perf-tile ' + (state || '')},
+    el('span',{}, label),
+    el('strong',{}, String(value)),
+    el('em',{}, meta)
+  );
+}
+
 function materialClassClient(label) {
   const s = String(label || '').toLowerCase();
   if (s.includes('drywall')) return 'drywall';
@@ -2272,6 +2373,7 @@ async function renderDlpReportReview(){
   const scopeTotals = dlpScopeTotals(workItems);
   const equipSummary = dlpEquipmentUsageSummary(deploys);
   const photoProof = dlpPhotoScopeProof(imagePhotos, workItems, rooms);
+  const proofStats = dlpPhotoProofStats(imagePhotos, rooms);
   const cadRows = sketches.flatMap(x => dlpReportCadRowsFromState(x.sketch.state_json, x.zone));
   const cadTotals = cadRows.reduce((acc, row) => {
     acc.floor_sf += Number(row.floor_sf) || 0;
@@ -2288,6 +2390,7 @@ async function renderDlpReportReview(){
     { label:'Moisture readings captured', done: latestMoisture.length >= Math.max(1, points.length), meta: `${latestMoisture.length}/${points.length || 0} points`, weight:14 },
     { label:'Atmosphere readings captured', done: atmos.length > 0, meta: atmos.length + ' readings', weight:8 },
     { label:'Photos attached', done: imagePhotos.length >= 3, meta: imagePhotos.length + ' photos', weight:10 },
+    { label:'Photo proof coverage', done: proofStats.score >= 70, meta: proofStats.score + '% coverage', weight:8 },
     { label:'Work log documented', done: workItems.length > 0, meta: workItems.length + ' entries', weight:8 },
     { label:'Scope quantities reviewed', done: scopeTotals.count > 0 && scopeTotals.open === 0, meta: scopeTotals.open ? scopeTotals.open + ' open scope decisions' : scopeTotals.count + ' scope lines', weight:8 },
     { label:'Photo proof linked', done: photoProof.linked > 0, meta: photoProof.linked ? photoProof.linked + ' proof photos' : 'tag room/scope photos', weight:6 },
@@ -2330,6 +2433,7 @@ async function renderDlpReportReview(){
     dlpReportStat('Equip Days', String(equipSummary.totalDays), equipSummary.active + ' active units'),
     dlpReportStat('Tasks', `${tasksDone}/${tasks.length}`, 'workflow complete')
   ));
+  screen.appendChild(dlpReportProofPanel(proofStats, photoProof));
 
   screen.appendChild(dlpReportCloseoutPath({
     score, blockers, alerts, rooms, zones, sketches, cadRows, surfaces,
@@ -2433,6 +2537,26 @@ async function renderDlpReportReview(){
 
 function dlpReportStat(label, value, meta) {
   return el('div',{class:'dlp-report-stat'}, el('span',{},label), el('strong',{},value), el('em',{},meta));
+}
+
+function dlpReportProofPanel(stats, photoProof){
+  const linked = photoProof?.linked || 0;
+  return el('section',{class:'dlp-report-proof'},
+    el('div',{class:'dlp-report-proof-head'},
+      el('div',{},
+        el('span',{},'Photo proof'),
+        el('strong',{}, stats.score + '% coverage'),
+        el('em',{}, linked ? linked + ' scope-linked proof photos' : 'Tag room and scope photos to strengthen the packet.')
+      ),
+      (() => { const b=el('button',{type:'button'},'Open Photos'); b.addEventListener('click',renderDlpPhotos); return b; })()
+    ),
+    el('div',{class:'dlp-report-proof-grid'},
+      dlpPhotoProofTile('Report volume', stats.total >= 6, stats.total + ' photos'),
+      dlpPhotoProofTile('Room filing', stats.roomsWithPhotos > 0, stats.roomsWithPhotos + ' rooms'),
+      dlpPhotoProofTile('Scope proof', linked > 0, linked ? linked + ' linked' : 'needs tags'),
+      ...stats.categoryHits.slice(0, 5).map(hit => dlpPhotoProofTile(hit.label, hit.done, hit.done ? 'covered' : 'missing'))
+    )
+  );
 }
 
 
@@ -4257,6 +4381,7 @@ function _dlpWizRenderPreflight(screen, step) {
   const missingPoints = (s.points_count || 0) === 0;
   const noEquipment = (s.deploys_count || 0) === 0;
   const queueCount = s.queue_count || 0;
+  screen.appendChild(dlpVisitRunSheet(s));
 
   screen.appendChild(el('div', {class:'dlp-visit-preflight-grid'},
     dlpVisitMetric('Chambers', s.zones_count || 0, 'active today', (s.zones_count || 0) ? 'ok' : 'warn'),
@@ -4288,6 +4413,32 @@ function _dlpWizRenderPreflight(screen, step) {
     dlpVisitAction('Room Readings', renderDlpRoomReadings),
     dlpVisitAction('Photos', renderDlpPhotos)
   ));
+}
+
+function dlpVisitRunSheet(summary){
+  const s = summary || {};
+  const rows = [
+    {label:'Outdoor baseline', done:!!s.outdoor_done, meta:s.outdoor_done ? 'already captured today' : 'capture before chamber readings', action:'Outdoor'},
+    {label:'Chamber atmosphere', done:(s.zones_count || 0) > 0, meta:(s.zones_count || 0) + ' active chambers', action:'Walk'},
+    {label:'Moisture points', done:(s.points_count || 0) > 0, meta:(s.points_count || 0) + ' repeatable points', action:'Readings'},
+    {label:'Equipment check', done:(s.deploys_count || 0) > 0, meta:(s.deploys_count || 0) + ' active units', action:'Equipment'},
+    {label:'Scope/work review', done:(s.scope_count || 0) > 0, meta:(s.scope_count || 0) + ' scope lines', action:'Scope'},
+    {label:'Photo proof', done:(s.photos_count || 0) >= 3, meta:(s.photos_count || 0) + ' photos on file', action:'Photos'},
+    {label:'Offline queue', done:(s.queue_count || 0) === 0, meta:(s.queue_count || 0) ? s.queue_count + ' queued saves' : 'clear', action:'Queue'}
+  ];
+  const ready = rows.filter(r => r.done).length;
+  return el('section',{class:'dlp-visit-run-sheet'},
+    el('div',{class:'dlp-visit-run-head'},
+      el('div',{}, el('span',{},'Today run sheet'), el('strong',{}, ready + '/' + rows.length + ' ready'), el('em',{},'Use this as the field walk checklist before closeout.')),
+      el('b',{}, Math.round((ready / rows.length) * 100) + '%')
+    ),
+    el('div',{class:'dlp-visit-run-grid'}, ...rows.map(row => el('div',{class:'dlp-visit-run-row ' + (row.done ? 'done' : 'todo')},
+      el('span',{}, row.done ? 'Ready' : 'Needed'),
+      el('strong',{}, row.label),
+      el('em',{}, row.meta),
+      el('b',{}, row.action)
+    )))
+  );
 }
 
 
@@ -4811,6 +4962,7 @@ async function renderDlpPhotos(){
     dlpPhotoCheck(finalPhotos.length > 0, 'Final / after', finalPhotos.length ? finalPhotos.length + ' captured' : 'closeout'),
     dlpPhotoCheck(allPhotos.length >= 6, 'Report volume', allPhotos.length >= 6 ? 'healthy' : 'add progress photos')
   ));
+  screen.appendChild(dlpPhotoProofBoard(allPhotos, rooms, buckets));
 
   for (const b of buckets) {
     screen.appendChild(el('div',{class:'dlp-section-h'}, b.name + (b.photos.length ? ' · ' + b.photos.length : '')));
@@ -4877,6 +5029,68 @@ function dlpPhotoTagCell(label, count, required){
     el('span',{}, label),
     el('strong',{}, String(count)),
     el('em',{}, count ? 'captured' : 'needed')
+  );
+}
+
+function dlpPhotoProofStats(photos, rooms){
+  const imagePhotos = photos || [];
+  const roomIds = new Set((rooms || []).map(r => Number(r.id)));
+  const roomFiled = imagePhotos.filter(p => roomIds.has(Number(p.claim_room_id || 0))).length;
+  const roomsWithPhotos = new Set(imagePhotos.map(p => Number(p.claim_room_id || 0)).filter(id => roomIds.has(id))).size;
+  const text = imagePhotos.map(p => String(p.caption || p.original_name || '').toLowerCase()).join(' ');
+  const required = [
+    ['arrival','arrival|exterior|front|access'],
+    ['source','source|cause|leak|supply|drain'],
+    ['equipment','equipment|dehu|air mover|scrubber|placement'],
+    ['progress','progress|daily|chamber|monitor'],
+    ['final','final|after|complete|closeout']
+  ];
+  const categoryHits = required.map(([label, pattern]) => ({label, done:new RegExp(pattern).test(text)}));
+  const ready = [
+    imagePhotos.length >= 6,
+    roomsWithPhotos >= Math.min((rooms || []).length, 1),
+    ...categoryHits.map(x => x.done)
+  ].filter(Boolean).length;
+  const total = 2 + categoryHits.length;
+  return {
+    score: total ? Math.round((ready / total) * 100) : 0,
+    total:imagePhotos.length,
+    roomFiled,
+    roomsWithPhotos,
+    categoryHits
+  };
+}
+
+function dlpPhotoProofBoard(photos, rooms, buckets){
+  const stats = dlpPhotoProofStats(photos, rooms);
+  const roomRows = (rooms || []).slice(0, 6).map(room => {
+    const count = (photos || []).filter(p => Number(p.claim_room_id || 0) === Number(room.id)).length;
+    return {name:room.name || ('Room ' + room.id), count};
+  });
+  return el('section',{class:'dlp-photo-proof-board'},
+    el('div',{class:'dlp-photo-proof-head'},
+      el('div',{}, el('span',{},'Proof board'), el('strong',{}, stats.score + '% photo coverage'), el('em',{},'Carrier-facing photo quality at a glance.')),
+      el('div',{class:'dlp-photo-proof-score'}, el('b',{}, String(stats.total)), el('small',{},'photos'))
+    ),
+    el('div',{class:'dlp-photo-proof-grid'},
+      dlpPhotoProofTile('Report volume', stats.total >= 6, stats.total + ' captured'),
+      dlpPhotoProofTile('Room filing', stats.roomFiled > 0, stats.roomFiled + ' filed'),
+      ...stats.categoryHits.map(hit => dlpPhotoProofTile(hit.label, hit.done, hit.done ? 'covered' : 'missing'))
+    ),
+    el('div',{class:'dlp-photo-proof-rooms'},
+      ...(roomRows.length ? roomRows.map(row => el('div',{class:'dlp-photo-proof-room ' + (row.count ? 'done' : 'todo')},
+        el('strong',{}, row.name),
+        el('span',{}, row.count ? row.count + ' photos' : 'needs proof')
+      )) : [el('div',{class:'dlp-command-empty'},'Add rooms to track room-by-room photo proof.')])
+    )
+  );
+}
+
+function dlpPhotoProofTile(label, done, meta){
+  return el('div',{class:'dlp-photo-proof-tile ' + (done ? 'done' : 'todo')},
+    el('span',{}, done ? 'Ready' : 'Needed'),
+    el('strong',{}, label),
+    el('em',{}, meta)
   );
 }
 
@@ -5104,6 +5318,7 @@ async function renderDlpScopeReview(){
   const exportBtn = el('button',{type:'button',class:'dlp-build-primary'},'Export CSV');
   exportBtn.addEventListener('click',()=>dlpDownloadScopeCsv(items, rooms));
   screen.appendChild(el('div',{class:'dlp-scope-actions'}, exportBtn, (()=>{ const b=el('button',{type:'button',class:'dlp-build-secondary'},'Back to rooms'); b.addEventListener('click',renderDlpWorkLog); return b; })()));
+  screen.appendChild(dlpScopeEstimatePanel(items, rooms));
 
   const roomName = {};
   rooms.forEach(r => { roomName[r.id] = r.name || ('Room ' + r.id); });
@@ -5125,6 +5340,53 @@ async function renderDlpScopeReview(){
     rows.forEach(item => panel.appendChild(dlpScopeReviewRow(item)));
     screen.appendChild(panel);
   });
+}
+
+function dlpScopeEstimatePanel(items, rooms){
+  const roomName = {};
+  (rooms || []).forEach(r => { roomName[r.id] = r.name || ('Room ' + r.id); });
+  const scopeRows = (items || []).filter(x => x.item_type !== 'note');
+  const byType = {};
+  const byStatus = {};
+  const byRoom = {};
+  scopeRows.forEach(item => {
+    const type = item.item_type || 'scope';
+    const status = dlpScopeStatusLabel(item.scope_status || item.item_type);
+    byType[type] = (byType[type] || 0) + 1;
+    byStatus[status] = (byStatus[status] || 0) + 1;
+    const rid = item.claim_room_id || 'unassigned';
+    (byRoom[rid] = byRoom[rid] || []).push(item);
+  });
+  const topRooms = Object.entries(byRoom)
+    .map(([rid, rows]) => ({rid, rows, totals:dlpScopeTotals(rows)}))
+    .sort((a,b) => (b.totals.count || 0) - (a.totals.count || 0))
+    .slice(0, 4);
+  return el('section',{class:'dlp-scope-estimate'},
+    el('div',{class:'dlp-scope-estimate-head'},
+      el('div',{}, el('span',{},'Estimate view'), el('strong',{}, scopeRows.length ? scopeRows.length + ' billable/work lines' : 'No scope yet')),
+      el('em',{}, `${Math.round(dlpScopeTotals(scopeRows).byUnit.sf || 0)} sf / ${Math.round(dlpScopeTotals(scopeRows).byUnit.lf || 0)} lf`)
+    ),
+    el('div',{class:'dlp-scope-estimate-grid'},
+      dlpScopeEstimateBucket('Demo', byType.demo || 0),
+      dlpScopeEstimateBucket('Scope', byType.scope || 0),
+      dlpScopeEstimateBucket('Consumables', byType.consumable || 0),
+      dlpScopeEstimateBucket('Open', dlpScopeTotals(scopeRows).open || 0)
+    ),
+    el('div',{class:'dlp-scope-estimate-rooms'},
+      ...(topRooms.length ? topRooms.map(row => el('div',{class:'dlp-scope-estimate-room'},
+        el('strong',{}, roomName[row.rid] || 'Unassigned'),
+        el('span',{}, row.rows.length + ' lines'),
+        el('em',{}, `${Math.round(row.totals.byUnit.sf || 0)} sf / ${Math.round(row.totals.byUnit.lf || 0)} lf`)
+      )) : [el('div',{class:'dlp-command-empty'},'Add scope lines to build an estimate-style room summary.')])
+    )
+  );
+}
+
+function dlpScopeEstimateBucket(label, value){
+  return el('div',{class:'dlp-scope-estimate-bucket'},
+    el('span',{}, label),
+    el('strong',{}, String(value))
+  );
 }
 
 function dlpScopeReviewRow(item){
@@ -5226,6 +5488,45 @@ function dlpScopeRoomActions(room, items, visitId, reload){
   const review = el('button',{type:'button',class:'dlp-build-secondary'},'Review job scope');
   review.addEventListener('click', renderDlpScopeReview);
   return el('div',{class:'dlp-scope-actions three'}, suggest, packages, review);
+}
+
+function dlpRoomCockpitPanel(room, items, photos, moisture){
+  const roomName = String(room?.name || '').trim().toLowerCase();
+  const roomPhotos = (photos || []).filter(p => {
+    const caption = String(p.caption || p.original_name || '').toLowerCase();
+    return Number(p.claim_room_id || 0) === Number(room?.id || 0) || (roomName && caption.includes(roomName));
+  });
+  const roomReadings = (moisture || []).filter(m => Number(m.claim_room_id || m.room_id || 0) === Number(room?.id || 0));
+  const totals = dlpScopeTotals(items || []);
+  const dims = [
+    room?.length_ft && room?.width_ft ? `${room.length_ft}' x ${room.width_ft}'` : null,
+    room?.height_ft ? `${room.height_ft}' h` : null
+  ].filter(Boolean).join(' / ') || 'Dimensions pending';
+  const checks = [
+    {label:'Measurements', done:!!(room?.length_ft && room?.width_ft), meta:dims},
+    {label:'Scope', done:totals.count > 0, meta:totals.count ? totals.count + ' lines' : 'not started'},
+    {label:'Open decisions', done:totals.open === 0 && totals.count > 0, meta:totals.open ? totals.open + ' open' : 'clear'},
+    {label:'Photo proof', done:roomPhotos.length > 0, meta:roomPhotos.length ? roomPhotos.length + ' photos' : 'needed'},
+    {label:'Readings', done:roomReadings.length > 0, meta:roomReadings.length ? roomReadings.length + ' logged' : 'pending'}
+  ];
+  const ready = checks.filter(c => c.done).length;
+  return el('section',{class:'dlp-room-cockpit'},
+    el('div',{class:'dlp-room-cockpit-head'},
+      el('div',{}, el('span',{},'Room cockpit'), el('strong',{}, ready + '/' + checks.length + ' ready')),
+      el('em',{}, dims)
+    ),
+    el('div',{class:'dlp-room-cockpit-grid'}, ...checks.map(c => el('div',{class:'dlp-room-cockpit-check ' + (c.done ? 'done' : 'todo')},
+      el('span',{}, c.done ? 'Ready' : 'Needed'),
+      el('strong',{}, c.label),
+      el('em',{}, c.meta)
+    ))),
+    el('div',{class:'dlp-room-cockpit-actions'},
+      (() => { const b=el('button',{type:'button'},'Readings'); b.addEventListener('click',()=>renderDlpRoomReadings(room?.id)); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Photos'); b.addEventListener('click',renderDlpPhotos); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Scope Review'); b.addEventListener('click',renderDlpScopeReview); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Sketch'); b.addEventListener('click',renderDlpSurfacesList); return b; })()
+    )
+  );
 }
 
 function dlpScopeSuggestedLines(room, items){
@@ -5613,9 +5914,17 @@ async function renderDlpRoomWorkLog(room){
   screen.appendChild(loading);
   root.appendChild(screen);
 
-  let items = [], visit_id = null;
-  try { items = await apiGet(`/room-work-items?claim_id=${claim_id}&claim_room_id=${room.id}`); } catch(e){}
+  let items = [], roomPhotos = [], moisture = [], visit_id = null;
+  try {
+    [items, roomPhotos, moisture] = await Promise.all([
+      apiGet(`/room-work-items?claim_id=${claim_id}&claim_room_id=${room.id}`).catch(()=>[]),
+      apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[])
+    ]);
+  } catch(e){}
   if (!Array.isArray(items)) items = [];
+  if (!Array.isArray(roomPhotos)) roomPhotos = [];
+  if (!Array.isArray(moisture)) moisture = [];
   try { visit_id = await _dlpEnsureVisit(claim_id); } catch(e){}
   loading.remove();
 
@@ -5623,6 +5932,7 @@ async function renderDlpRoomWorkLog(room){
   const reload = () => renderDlpRoomWorkLog(room);
   const totals = dlpScopeTotals(items);
   screen.appendChild(dlpScopeRoomHero(room, totals));
+  screen.appendChild(dlpRoomCockpitPanel(room, items, roomPhotos, moisture));
   screen.appendChild(dlpScopeSummaryPanel(items));
   screen.appendChild(dlpScopeRoomActions(room, items, visit_id, reload));
 
@@ -5927,6 +6237,8 @@ async function _dlpWizRenderDone(screen){
   } catch(e){}
 
   list.innerHTML = '';
+  const dailyScore = dlpVisitDailyScore({outdoor, atm, moi, dehu, visitPhotos});
+  summaryBox.insertBefore(dlpVisitDailyScorecard(dailyScore), list);
   function addLine(captured, label){
     const line = el('div',{style:'display:flex;align-items:center;gap:8px;font-size:13px;'});
     line.appendChild(el('span',{style:`color:${captured?'#16a34a':'#cbd5e1'};font-weight:800;width:18px;text-align:center;`}, captured?'✅':'○'));
@@ -5942,6 +6254,34 @@ async function _dlpWizRenderDone(screen){
   addLine(moi.length > 0,     moi.length    + ' moisture reading'   + (moi.length===1?'':'s')   + ' across ' + moiZones.size + ' chamber' + (moiZones.size===1?'':'s'));
   addLine(dehuCount > 0,      dehuCount     + ' dehu performance reading' + (dehuCount===1?'':'s'));
   addLine(visitPhotos > 0,    visitPhotos   + ' photo' + (visitPhotos===1?'':'s') + ' attached to this visit');
+}
+
+function dlpVisitDailyScore(ctx){
+  const checks = [
+    {label:'Outdoor', done:(ctx.outdoor || []).length > 0, meta:(ctx.outdoor || []).length ? 'captured' : 'skipped'},
+    {label:'Atmosphere', done:(ctx.atm || []).length > 0, meta:(ctx.atm || []).length + ' readings'},
+    {label:'Moisture', done:(ctx.moi || []).length > 0, meta:(ctx.moi || []).length + ' readings'},
+    {label:'Dehu', done:(ctx.dehu || []).length > 0, meta:(ctx.dehu || []).length + ' checks'},
+    {label:'Photos', done:Number(ctx.visitPhotos || 0) > 0, meta:(ctx.visitPhotos || 0) + ' attached'}
+  ];
+  const done = checks.filter(c => c.done).length;
+  return {score:Math.round((done / checks.length) * 100), checks};
+}
+
+function dlpVisitDailyScorecard(result){
+  return el('div',{class:'dlp-visit-scorecard'},
+    el('div',{class:'dlp-visit-scorecard-head'},
+      el('div',{}, el('span',{},'Daily score'), el('strong',{}, result.score + '% complete')),
+      el('b',{}, String(result.score))
+    ),
+    el('div',{class:'dlp-visit-scorecard-grid'},
+      ...result.checks.map(check => el('div',{class:'dlp-visit-scorecell ' + (check.done ? 'done' : 'todo')},
+        el('span',{}, check.done ? 'Done' : 'Open'),
+        el('strong',{}, check.label),
+        el('em',{}, check.meta)
+      ))
+    )
+  );
 }
 
 
@@ -9733,16 +10073,18 @@ async function renderDlpEquipmentList(){
   screen.appendChild(loading);
   root.appendChild(screen);
 
-  let deploys=[], zones=[], inventory=[];
+  let deploys=[], zones=[], inventory=[], dehuReadings=[];
   try {
-    const [d, z, inv] = await Promise.all([
+    const [d, z, inv, dh] = await Promise.all([
       apiGet(`/equipment-deploys?job_id=${claim_id}&active=1`),
       apiGet(`/drying-zones?claim_id=${claim_id}`),
       apiGet('/equipment').catch(()=>[]),
+      apiGet(`/readings/dehu?claim_id=${claim_id}`).catch(()=>[]),
     ]);
     deploys = Array.isArray(d) ? d : [];
     zones = Array.isArray(z) ? z : [];
     inventory = Array.isArray(inv) ? inv : [];
+    dehuReadings = Array.isArray(dh) ? dh : [];
   } catch(e){}
   loading.remove();
 
@@ -9764,6 +10106,7 @@ async function renderDlpEquipmentList(){
     dlpShareStat('Chambers', String(zones.length), 'placement targets')
   ));
 
+  screen.appendChild(dlpEquipmentPerformancePanel(deploys, zones, dehuReadings));
   screen.appendChild(el('div',{class:'dlp-section-h'},'On Site Equipment · ' + deploys.length));
 
   if (deploys.length === 0) {
