@@ -5784,6 +5784,186 @@ button[style*="fef2f2"] {
   line-height: 1.4;
 }
 
+.dlp-demo-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dlp-demo-stat {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius);
+  background: #ffffff;
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-demo-stat.ok {
+  border-color: #bfe7d4;
+  background: #f3fbf7;
+}
+
+.dlp-demo-stat.warn {
+  border-color: #ead7ad;
+  background: #fffaf0;
+}
+
+.dlp-demo-stat span,
+.dlp-demo-stat strong,
+.dlp-demo-stat em,
+.dlp-demo-route strong,
+.dlp-demo-route span,
+.dlp-demo-section-head strong,
+.dlp-demo-section-head span,
+.dlp-demo-day strong,
+.dlp-demo-day em {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dlp-demo-stat span {
+  color: var(--dlp-cyan);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.dlp-demo-stat strong {
+  margin-top: 5px;
+  color: var(--dlp-ink);
+  font-family: "Bahnschrift", "Aptos Display", sans-serif;
+  font-size: 28px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.dlp-demo-stat em {
+  margin-top: 5px;
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 820;
+}
+
+.dlp-demo-routes {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dlp-demo-route {
+  min-height: 58px;
+  padding: 11px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius);
+  background: #ffffff;
+  color: var(--dlp-ink);
+  text-align: left;
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-demo-route.primary {
+  border-color: #172026;
+  background: #172026;
+  color: #ffffff;
+}
+
+.dlp-demo-route strong {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.dlp-demo-route span {
+  margin-top: 4px;
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-weight: 820;
+}
+
+.dlp-demo-route.primary span {
+  color: rgba(255,255,255,.72);
+}
+
+.dlp-demo-timeline {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px solid #c9d6dc;
+  border-radius: var(--dlp-radius);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(244,248,249,.94)),
+    repeating-linear-gradient(0deg, rgba(23,32,38,.035) 0 1px, transparent 1px 18px);
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-demo-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dlp-demo-section-head strong {
+  color: var(--dlp-ink);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.dlp-demo-section-head span {
+  color: var(--dlp-cyan);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.dlp-demo-day {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 10px;
+  border: 1px solid rgba(201,214,220,.78);
+  border-radius: var(--dlp-radius-sm);
+  background: rgba(255,255,255,.94);
+  color: var(--dlp-ink);
+  text-align: left;
+}
+
+.dlp-demo-day span {
+  display: grid;
+  min-height: 36px;
+  place-items: center;
+  border-radius: var(--dlp-radius-sm);
+  background: #eaf7f7;
+  color: var(--dlp-cyan);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.dlp-demo-day strong {
+  color: var(--dlp-ink);
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.dlp-demo-day em {
+  margin-top: 3px;
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 760;
+}
+
 .dlp-demo-list {
   display: grid;
   gap: 8px;
@@ -7469,6 +7649,23 @@ img {
 
   .dlp-share-gallery {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dlp-demo-hero,
+  .dlp-demo-stats,
+  .dlp-demo-routes {
+    grid-template-columns: 1fr;
+  }
+
+  .dlp-demo-day,
+  .dlp-demo-step {
+    grid-template-columns: 1fr;
+  }
+
+  .dlp-demo-step span,
+  .dlp-demo-day span {
+    width: fit-content;
+    min-width: 72px;
   }
 
   .dlp-roomread-hero,

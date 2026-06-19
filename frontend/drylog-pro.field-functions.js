@@ -3047,14 +3047,16 @@ async function renderDlpDemoWalkthrough(){
   const loading = el('div',{class:'dlp-empty'},'Checking demo workflow...');
   screen.appendChild(loading);
   root.appendChild(screen);
-  let rooms=[], zones=[], photos=[], moisture=[], atmos=[], deploys=[], workItems=[], standards=[], alerts=[];
+  let visits=[], rooms=[], zones=[], photos=[], moisture=[], atmos=[], dehu=[], deploys=[], workItems=[], standards=[], alerts=[];
   try {
-    [rooms,zones,photos,moisture,atmos,deploys,workItems,standards,alerts] = await Promise.all([
+    [visits,rooms,zones,photos,moisture,atmos,dehu,deploys,workItems,standards,alerts] = await Promise.all([
+      apiGet(`/visits?job_id=${claim_id}`).catch(()=>[]),
       apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(()=>[]),
       apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/readings/zone-atmosphere?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/dehu?claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/equipment-deploys?job_id=${claim_id}`).catch(()=>[]),
       apiGet(`/room-work-items?claim_id=${claim_id}`).catch(()=>[]),
       apiGet(`/claim-material-standards?claim_id=${claim_id}`).catch(()=>[]),
@@ -3063,17 +3065,34 @@ async function renderDlpDemoWalkthrough(){
   } catch(e){}
   loading.remove();
   const imagePhotos = (photos || []).filter(p => /^image\//.test(String(p.mime_type || '')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name || p.file_url || '')));
+  const latestByPoint = {};
+  (moisture || []).forEach(row => {
+    const key = String(row.reading_point_id || '');
+    if (key && (!latestByPoint[key] || String(row.reading_at || '') > String(latestByPoint[key].reading_at || ''))) latestByPoint[key] = row;
+  });
+  const latestMoisture = Object.values(latestByPoint);
+  const dryPoints = latestMoisture.filter(row => Number(row.is_dry_at_time || 0) === 1).length;
+  const scopeTotals = dlpScopeTotals(workItems || []);
+  const totalReadings = (moisture || []).length + (atmos || []).length + (dehu || []).length;
+  const sortedVisits = (visits || []).slice().sort((a,b)=>String(a.visit_date || a.created_at || '').localeCompare(String(b.visit_date || b.created_at || '')));
   const steps = [
     ['1. Intake / buildout', rooms.length && zones.length, `${rooms.length} rooms / ${zones.length} chambers`, renderDlpBuildoutStudio],
     ['2. Material standards', standards.length > 0, standards.length ? standards.length + ' standards' : 'missing', renderDlpFieldTools],
     ['3. Equipment deployed', deploys.length > 0, deploys.length + ' deployments', renderDlpEquipmentList],
-    ['4. Daily readings', moisture.length > 0 && atmos.length > 0, `${moisture.length + atmos.length} readings`, renderDlpDailyVisitWizard],
-    ['5. Photo proof set', imagePhotos.length >= 6, imagePhotos.length + ' photos', renderDlpPhotos],
-    ['6. Work performed', workItems.length > 0, workItems.length + ' entries', renderDlpBuildoutStudio],
-    ['7. Drying trends', moisture.length > 0, moisture.length + ' moisture readings', renderDlpDryingProgress],
-    ['8. Report closeout', alerts.length === 0, alerts.length ? alerts.length + ' alerts open' : 'clear', renderDlpReportReview],
-    ['9. Share preview', imagePhotos.length > 0 && moisture.length > 0, 'handoff view', renderDlpSharePreview],
-    ['10. PDF export', rooms.length && zones.length, 'open Report > Export PDF', renderDlpReportReview],
+    ['4. Five-day visits', sortedVisits.length >= 5, `${sortedVisits.length} visit${sortedVisits.length===1?'':'s'}`, renderDlpDailyVisitWizard],
+    ['5. Daily readings', moisture.length > 0 && atmos.length > 0, `${totalReadings} readings`, renderDlpDailyVisitWizard],
+    ['6. Dry goals hit', latestMoisture.length > 0 && dryPoints === latestMoisture.length, `${dryPoints}/${latestMoisture.length} current points`, renderDlpDryingProgress],
+    ['7. Photo proof set', imagePhotos.length >= 12, imagePhotos.length + ' photos', renderDlpPhotos],
+    ['8. Work performed', workItems.length > 0 && scopeTotals.open === 0, scopeTotals.open ? scopeTotals.open + ' open decisions' : workItems.length + ' entries', renderDlpWorkLog],
+    ['9. Report closeout', alerts.length === 0, alerts.length ? alerts.length + ' alerts open' : 'clear', renderDlpReportReview],
+    ['10. Share preview', imagePhotos.length > 0 && moisture.length > 0, 'handoff view', renderDlpSharePreview],
+  ];
+  const routes = [
+    ['Open Job Dashboard', 'field command center', renderDrylogPro, true],
+    ['Readings + Graphs', `${totalReadings} readings`, renderDlpDryingProgress],
+    ['Scope Review', `${scopeTotals.count} lines`, renderDlpScopeReview],
+    ['Report Packet', `${alerts.length ? alerts.length + ' alerts' : 'ready check'}`, renderDlpReportReview],
+    ['Share Preview', 'customer/adjuster view', renderDlpSharePreview],
   ];
   const done = steps.filter(s => s[1]).length;
   screen.appendChild(el('section',{class:'dlp-demo-hero'},
@@ -3084,6 +3103,16 @@ async function renderDlpDemoWalkthrough(){
     ),
     el('div',{class:'dlp-tools-score'}, el('strong',{}, String(10-done)), el('span',{}, 'left'))
   ));
+  screen.appendChild(el('section',{class:'dlp-demo-stats'},
+    dlpDemoStat('Rooms', String(rooms.length), `${zones.length} chamber${zones.length===1?'':'s'}`, rooms.length ? 'ok' : 'todo'),
+    dlpDemoStat('Visits', String(sortedVisits.length), sortedVisits.length >= 5 ? 'five-day file' : 'needs more days', sortedVisits.length >= 5 ? 'ok' : 'warn'),
+    dlpDemoStat('Readings', String(totalReadings), `${dryPoints}/${latestMoisture.length || 0} dry points`, latestMoisture.length && dryPoints === latestMoisture.length ? 'ok' : 'warn'),
+    dlpDemoStat('Photos', String(imagePhotos.length), 'proof set', imagePhotos.length >= 12 ? 'ok' : 'warn'),
+    dlpDemoStat('Scope', String(scopeTotals.count), scopeTotals.open ? scopeTotals.open + ' open' : 'clean', scopeTotals.count && !scopeTotals.open ? 'ok' : 'warn')
+  ));
+  const routeBar = el('section',{class:'dlp-demo-routes'}, ...routes.map(r => dlpDemoRoute(r[0], r[1], r[2], r[3])));
+  screen.appendChild(routeBar);
+  screen.appendChild(dlpDemoTimeline(sortedVisits, moisture, atmos, dehu, imagePhotos, workItems));
   const list = el('section',{class:'dlp-demo-list'});
   steps.forEach(step => {
     const row = el('button',{type:'button',class:'dlp-demo-step ' + (step[1] ? 'done' : 'todo')},
@@ -3095,6 +3124,50 @@ async function renderDlpDemoWalkthrough(){
     list.appendChild(row);
   });
   screen.appendChild(list);
+}
+
+function dlpDemoStat(label, value, meta, state){
+  return el('div',{class:'dlp-demo-stat ' + (state || '')},
+    el('span',{}, label),
+    el('strong',{}, value),
+    el('em',{}, meta)
+  );
+}
+
+function dlpDemoRoute(label, meta, onClick, primary){
+  const btn = el('button',{type:'button',class:'dlp-demo-route' + (primary ? ' primary' : '')},
+    el('strong',{}, label),
+    el('span',{}, meta)
+  );
+  btn.addEventListener('click', onClick || renderDrylogPro);
+  return btn;
+}
+
+function dlpDemoTimeline(visits, moisture, atmos, dehu, photos, workItems){
+  const list = el('section',{class:'dlp-demo-timeline'},
+    el('div',{class:'dlp-demo-section-head'}, el('strong',{},'Five-day job story'), el('span',{}, (visits || []).length ? (visits.length + ' visits') : 'No visits yet'))
+  );
+  const dayRows = (visits || []).slice(0, 7);
+  if (!dayRows.length) {
+    list.appendChild(el('div',{class:'dlp-command-empty'},'Create the full demo loss to load a five-day drying story.'));
+    return list;
+  }
+  dayRows.forEach((visit, index) => {
+    const vid = Number(visit.id);
+    const readingCount = (moisture || []).filter(x => Number(x.visit_id) === vid).length
+      + (atmos || []).filter(x => Number(x.visit_id) === vid).length
+      + (dehu || []).filter(x => Number(x.visit_id) === vid).length;
+    const photoCount = (photos || []).filter(x => Number(x.entity_id) === vid).length;
+    const workCount = (workItems || []).filter(x => Number(x.visit_id) === vid).length;
+    const title = index === 0 ? 'Initial mitigation' : index === dayRows.length - 1 ? 'Final dry check' : 'Drying progress';
+    list.appendChild(el('button',{type:'button',class:'dlp-demo-day'},
+      el('span',{}, 'Day ' + (index + 1)),
+      el('strong',{}, title),
+      el('em',{}, [visit.visit_date || visit.created_at || 'Visit', readingCount + ' readings', photoCount + ' photos', workCount + ' scope'].join(' | '))
+    ));
+  });
+  Array.from(list.querySelectorAll('.dlp-demo-day')).forEach(btn => btn.addEventListener('click', renderDlpDailyVisitWizard));
+  return list;
 }
 
 
