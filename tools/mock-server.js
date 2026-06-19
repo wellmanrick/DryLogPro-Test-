@@ -232,11 +232,13 @@ function seedFullDemoJob() {
   };
   state.jobs.unshift(job);
 
-  const visit0 = makeVisit(job.id, dateDaysAgo(3), 0, 'initial');
-  const visit1 = makeVisit(job.id, dateDaysAgo(2), 1, 'followup');
-  const visit2 = makeVisit(job.id, dateDaysAgo(1), 2, 'followup');
-  const visit3 = makeVisit(job.id, today(), 3, 'followup');
-  state.visits.push(visit0, visit1, visit2, visit3);
+  const visit0 = makeVisit(job.id, dateDaysAgo(4), 0, 'initial');
+  const visit1 = makeVisit(job.id, dateDaysAgo(3), 1, 'followup');
+  const visit2 = makeVisit(job.id, dateDaysAgo(2), 2, 'followup');
+  const visit3 = makeVisit(job.id, dateDaysAgo(1), 3, 'followup');
+  const visit4 = makeVisit(job.id, today(), 4, 'followup');
+  const demoVisits = [visit0, visit1, visit2, visit3, visit4];
+  state.visits.push(...demoVisits);
 
   const kitchen = Object.assign(makeRoom(job.id, 'Kitchen', 1), { length_ft: 15, width_ft: 12, height_ft: 8 });
   const laundry = Object.assign(makeRoom(job.id, 'Laundry Room', 2), { length_ft: 9, width_ft: 8, height_ft: 8 });
@@ -282,47 +284,58 @@ function seedFullDemoJob() {
   const am2 = ensureEquipment('Air Mover', 'Dri-Eaz', 'Velo Pro', 'AM-VP-' + stamp + '-2', 'AM-FD-2');
   const hepa = ensureEquipment('Air Scrubber', 'Dri-Eaz', 'HEPA 700', 'AS-HP-' + stamp, 'HEPA-FD-' + stamp);
   const chamberDeploys = [makeDeploy(dehu.id, job.id, chamber.id), makeDeploy(am1.id, job.id, chamber.id), makeDeploy(am2.id, job.id, chamber.id), makeDeploy(hepa.id, job.id, chamber.id)];
-  chamberDeploys.forEach((dep, i) => { dep.deployed_at = hoursAgoSql(70 - i); });
+  chamberDeploys.forEach((dep, i) => { dep.deployed_at = hoursAgoSql(94 - i); });
   state.deploys.push(...chamberDeploys, makeDeploy(2, job.id, monitored.id));
 
-  seedDemoReadings(job.id, chamber, monitored, [visit0, visit1, visit2, visit3], points, chamberDeploys[0]);
-  seedDemoWork(job.id, kitchen, laundry, hallway, [visit0, visit1, visit2]);
-  seedDemoPhotos(visit0, visit1, visit2, visit3, kitchen, laundry, hallway);
+  seedDemoReadings(job.id, chamber, monitored, demoVisits, points, chamberDeploys[0]);
+  seedDemoWork(job.id, kitchen, laundry, hallway, demoVisits);
+  seedDemoPhotos(visit0, visit1, visit2, visit3, visit4, kitchen, laundry, hallway, living);
   seedTasks(job.id, 'cat2');
   completeDemoTasks(job.id);
   recomputeTasks(job.id);
 
   state.alerts.push({
     id: nextId(), company_id: 1, claim_id: job.id, drying_zone_id: chamber.id,
-    alert_type: 'zone_ready_to_close', severity: 'info', state: 'open',
-    title: 'Kitchen chamber nearing closeout',
-    message: 'Most points are at or below goal. Capture final readings and review equipment pull.',
-    created_at: hoursAgoSql(2)
+    alert_type: 'zone_ready_to_close', severity: 'info', state: 'resolved',
+    title: 'Kitchen chamber ready for office review',
+    message: 'Five-day drying trend is complete. Final readings are at or below goal and ready for packet review.',
+    created_at: hoursAgoSql(2),
+    resolved_at: hoursAgoSql(1)
   });
   return job;
 }
 
 function seedDemoReadings(jobId, chamber, monitored, visits, points, dehuDeploy) {
   const moistures = [
-    [31.8, 25.4, 18.6, 14.8],
-    [24.9, 20.7, 16.2, 13.7],
-    [19.8, 16.4, 12.8, 11.7],
-    [17.6, 14.2, 12.3, 11.4],
-    [28.5, 23.1, 18.0, 14.9],
-    [78.0, 71.0, 66.0, 63.0]
+    [31.8, 25.4, 18.6, 15.4, 14.2],
+    [24.9, 20.7, 16.2, 14.3, 13.6],
+    [19.8, 16.4, 12.8, 11.9, 11.5],
+    [17.6, 14.2, 12.3, 11.7, 11.3],
+    [28.5, 23.1, 18.0, 15.5, 14.6],
+    [78.0, 71.0, 66.0, 64.0, 62.0]
   ];
+  const outdoorTemp = [83, 81, 79, 77, 76];
+  const outdoorRh = [72, 68, 64, 60, 58];
+  const chamberTemp = [76, 78, 77, 76, 75];
+  const chamberRh = [64, 52, 46, 42, 39];
+  const monitoredTemp = [74, 75, 75, 74, 74];
+  const monitoredRh = [58, 51, 47, 44, 43];
+  const exhaustTemp = [94, 96, 95, 94, 93];
+  const exhaustRh = [31, 27, 24, 22, 21];
+  const baseHours = 96;
   visits.forEach((visit, day) => {
+    const dayOffset = baseHours - day * 23;
     state.referenceReadings.push(makeReferenceReading({
       job_id: jobId,
       visit_id: visit.id,
       location_label: day === 0 ? 'Outdoor baseline' : 'Outdoor check',
-      temp_f: [83, 81, 78, 76][day],
-      rh_pct: [72, 68, 62, 58][day],
-      reading_at: hoursAgoSql(72 - day * 24)
+      temp_f: outdoorTemp[day],
+      rh_pct: outdoorRh[day],
+      reading_at: hoursAgoSql(dayOffset)
     }));
     state.zoneAtmosphereReadings.push(
-      makeZoneAtmosphereReading({ drying_zone_id: chamber.id, visit_id: visit.id, temp_f: [76, 78, 77, 75][day], rh_pct: [64, 52, 44, 39][day], reading_at: hoursAgoSql(70 - day * 22) }),
-      makeZoneAtmosphereReading({ drying_zone_id: monitored.id, visit_id: visit.id, temp_f: [74, 75, 75, 74][day], rh_pct: [58, 51, 47, 43][day], reading_at: hoursAgoSql(69 - day * 22) })
+      makeZoneAtmosphereReading({ drying_zone_id: chamber.id, visit_id: visit.id, temp_f: chamberTemp[day], rh_pct: chamberRh[day], reading_at: hoursAgoSql(dayOffset - 1) }),
+      makeZoneAtmosphereReading({ drying_zone_id: monitored.id, visit_id: visit.id, temp_f: monitoredTemp[day], rh_pct: monitoredRh[day], reading_at: hoursAgoSql(dayOffset - 2) })
     );
     points.forEach((point, i) => {
       state.moistureReadings.push(makeMoistureReading({
@@ -330,46 +343,56 @@ function seedDemoReadings(jobId, chamber, monitored, visits, points, dehuDeploy)
         visit_id: visit.id,
         moisture_value: moistures[i][day],
         moisture_unit: i === 5 ? '%WME' : '%MC',
-        reading_at: hoursAgoSql(68 - day * 22 - i * 0.1)
+        reading_at: hoursAgoSql(dayOffset - 3 - i * 0.1)
       }));
     });
     state.dehuReadings.push(makeDehuReading({
       drying_zone_id: chamber.id,
       equipment_deploy_id: dehuDeploy.id,
       visit_id: visit.id,
-      intake_temp_f: [76, 78, 77, 75][day],
-      intake_rh_pct: [64, 52, 44, 39][day],
-      exhaust_temp_f: [94, 96, 95, 93][day],
-      exhaust_rh_pct: [31, 27, 24, 21][day],
-      reading_at: hoursAgoSql(67 - day * 22)
+      intake_temp_f: chamberTemp[day],
+      intake_rh_pct: chamberRh[day],
+      exhaust_temp_f: exhaustTemp[day],
+      exhaust_rh_pct: exhaustRh[day],
+      reading_at: hoursAgoSql(dayOffset - 4)
     }));
   });
 }
 
 function seedDemoWork(jobId, kitchen, laundry, hallway, visits) {
   state.workItems.push(
-    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'toe_kick', phase: 'detach', scope_status: 'detached', label: 'Detached sink base toe kick', qty: 1, unit: 'ea', notes: 'Toe kick bagged and labeled for carrier review.', created_at: hoursAgoSql(69) },
-    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'baseboard', phase: 'remove', scope_status: 'removed', label: 'Removed affected baseboard', qty: 18, unit: 'lf', notes: 'Kitchen sink wall and hall transition.', created_at: hoursAgoSql(68) },
-    { id: nextId(), company_id: 1, claim_room_id: laundry.id, visit_id: visits[1].id, item_type: 'demo', category: 'drywall_wall', phase: 'remove', scope_status: 'removed', label: 'Opened wall cavity for drying', qty: 12, unit: 'sf', notes: 'Clean cut below cabinet return.', created_at: hoursAgoSql(45) },
-    { id: nextId(), company_id: 1, claim_room_id: hallway.id, visit_id: visits[1].id, item_type: 'consumable', category: 'antimicrobial', phase: 'clean', scope_status: 'used', label: 'Applied antimicrobial', qty: 1, unit: 'gal', notes: 'Affected base plate and subfloor seam.', created_at: hoursAgoSql(44) },
-    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[2].id, item_type: 'scope', category: 'air_mover_adjust', phase: 'drying', scope_status: 'needed', label: 'Equipment monitoring and adjustment', qty: 1, unit: 'hr', notes: 'Moved one air mover to toe-kick cavity.', created_at: hoursAgoSql(22) }
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'toe_kick', phase: 'detach', scope_status: 'detached', label: 'Detached sink base toe kick', qty: 1, unit: 'ea', notes: 'Toe kick bagged and labeled for carrier review.', created_at: hoursAgoSql(93) },
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'baseboard', phase: 'remove', scope_status: 'removed', label: 'Removed affected baseboard', qty: 18, unit: 'lf', notes: 'Kitchen sink wall and hall transition.', created_at: hoursAgoSql(92) },
+    { id: nextId(), company_id: 1, claim_room_id: laundry.id, visit_id: visits[1].id, item_type: 'demo', category: 'drywall_wall', phase: 'remove', scope_status: 'removed', label: 'Opened wall cavity for drying', qty: 12, unit: 'sf', notes: 'Clean cut below cabinet return.', created_at: hoursAgoSql(69) },
+    { id: nextId(), company_id: 1, claim_room_id: hallway.id, visit_id: visits[1].id, item_type: 'consumable', category: 'antimicrobial', phase: 'clean', scope_status: 'used', label: 'Applied antimicrobial', qty: 1, unit: 'gal', notes: 'Affected base plate and subfloor transition.', created_at: hoursAgoSql(68) },
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[2].id, item_type: 'scope', category: 'air_mover_adjust', phase: 'drying', scope_status: 'used', label: 'Equipment monitoring and adjustment', qty: 1, unit: 'hr', notes: 'Moved one air mover to toe-kick cavity.', created_at: hoursAgoSql(45) },
+    { id: nextId(), company_id: 1, claim_room_id: hallway.id, visit_id: visits[3].id, item_type: 'demo', category: 'baseboard', phase: 'reset', scope_status: 'reset', label: 'Reset hallway baseboard after dry check', qty: 18, unit: 'lf', notes: 'Material documented dry before reset.', created_at: hoursAgoSql(22) },
+    { id: nextId(), company_id: 1, claim_room_id: laundry.id, visit_id: visits[3].id, item_type: 'consumable', category: 'antimicrobial', phase: 'clean', scope_status: 'used', label: 'Final antimicrobial wipe-down', qty: 0.5, unit: 'gal', notes: 'Laundry access cut and cabinet return cleaned.', created_at: hoursAgoSql(21) },
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[4].id, item_type: 'scope', category: 'final_dry_check', phase: 'closeout', scope_status: 'used', label: 'Final dry standard verification', qty: 1, unit: 'ea', notes: 'All mapped kitchen and chamber points at or below goal.', created_at: hoursAgoSql(3) },
+    { id: nextId(), company_id: 1, claim_room_id: laundry.id, visit_id: visits[4].id, item_type: 'note', category: 'office_handoff', phase: 'closeout', scope_status: 'used', label: 'Office handoff note', qty: 1, unit: 'ea', notes: 'Five-day packet includes sketch, scope, readings, equipment, and final photos.', created_at: hoursAgoSql(2) }
   );
   const job = state.jobs.find(j => j.id === jobId);
   if (job) job.updated_at = nowSql();
 }
 
-function seedDemoPhotos(visit0, visit1, visit2, visit3, kitchen, laundry, hallway) {
+function seedDemoPhotos(visit0, visit1, visit2, visit3, visit4, kitchen, laundry, hallway, living) {
   const photos = [
-    [visit0.id, kitchen.id, '[Arrival] Front elevation and access path', 71],
-    [visit0.id, kitchen.id, '[Source] Dishwasher supply line after shutoff', 70],
-    [visit0.id, kitchen.id, '[Before] Kitchen sink wall and toe kick', 69],
-    [visit0.id, hallway.id, '[Equipment] Initial chamber and containment setup', 67],
-    [visit1.id, kitchen.id, '[Progress] Baseboard removed and cavity exposed', 45],
-    [visit1.id, laundry.id, '[Progress] Laundry shared wall drying access', 44],
-    [visit2.id, kitchen.id, '[Equipment] Air mover repositioned into cavity', 22],
-    [visit2.id, hallway.id, '[Progress] Hallway baseboard at dry goal', 21],
-    [visit3.id, kitchen.id, '[After] Kitchen readings at goal', 2],
-    [visit3.id, laundry.id, '[Final] Laundry chamber ready for review', 1]
+    [visit0.id, kitchen.id, '[Arrival] Front elevation and access path', 95],
+    [visit0.id, kitchen.id, '[Source] Dishwasher supply line after shutoff', 94],
+    [visit0.id, kitchen.id, '[Before] Kitchen sink wall and toe kick', 93],
+    [visit0.id, hallway.id, '[Equipment] Initial chamber and containment setup', 91],
+    [visit1.id, kitchen.id, '[Progress] Baseboard removed and cavity exposed', 69],
+    [visit1.id, laundry.id, '[Progress] Laundry shared wall drying access', 68],
+    [visit1.id, hallway.id, '[Moisture] Hallway migration map', 67],
+    [visit2.id, kitchen.id, '[Equipment] Air mover repositioned into cavity', 45],
+    [visit2.id, hallway.id, '[Progress] Hallway baseboard trending down', 44],
+    [visit2.id, laundry.id, '[Drying] Laundry shared wall intermediate reading', 43],
+    [visit3.id, kitchen.id, '[Moisture] Kitchen wall near dry goal', 22],
+    [visit3.id, hallway.id, '[Progress] Hallway baseboard reset', 21],
+    [visit4.id, kitchen.id, '[After] Kitchen readings at goal', 3],
+    [visit4.id, laundry.id, '[Final] Laundry chamber ready for review', 2],
+    [visit4.id, hallway.id, '[Final] Hallway dry and reset complete', 1],
+    [visit4.id, living.id, '[Monitor] Living room unaffected control area', 1]
   ];
   photos.forEach(([visitId, roomId, caption, ago]) => {
     const photo = makeAttachment(visitId, caption, 'mock-photo.svg', hoursAgoSql(ago));
@@ -431,11 +454,11 @@ function buildFullDemoSketch(kitchen, laundry, hallway, living) {
       { x: 395, y: 304, type: 'Air Scrubber', label: 'HEPA' }
     ],
     points: [
-      { x: 170, y: 84, label: 'K-W1', value: 14.8 },
-      { x: 230, y: 178, label: 'K-F1', value: 13.7 },
-      { x: 304, y: 112, label: 'K-C1', value: 11.7 },
-      { x: 270, y: 316, label: 'H-B1', value: 11.4 },
-      { x: 406, y: 92, label: 'L-W1', value: 14.9 }
+      { x: 170, y: 84, label: 'K-W1', value: 14.2 },
+      { x: 230, y: 178, label: 'K-F1', value: 13.6 },
+      { x: 304, y: 112, label: 'K-C1', value: 11.5 },
+      { x: 270, y: 316, label: 'H-B1', value: 11.3 },
+      { x: 406, y: 92, label: 'L-W1', value: 14.6 }
     ],
     water: [
       { roomIdx: 0, x: 112, y: 88, w: 188, h: 132, label: 'Primary wet area' },
