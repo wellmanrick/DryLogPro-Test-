@@ -3097,6 +3097,8 @@ async function renderDlpStudioSettings(){
   });
   const walkBtn = el('button',{type:'button',class:'dlp-build-primary'},'Open demo walkthrough');
   walkBtn.addEventListener('click', renderDlpDemoWalkthrough);
+  const shipBtn = el('button',{type:'button',class:'dlp-build-primary'},'Open ship board');
+  shipBtn.addEventListener('click', renderDlpPreDatabaseShipBoard);
 
   const panels = el('section',{class:'dlp-studio-grid'},
     dlpStudioPanel('Company Branding','These values will become account/company settings later.',
@@ -3115,7 +3117,7 @@ async function renderDlpStudioSettings(){
       el('div',{class:'dlp-studio-actions'}, (()=>{ const b=el('button',{type:'button',class:'dlp-build-primary'},'Save defaults'); b.addEventListener('click',()=>save.click()); return b; })())
     ),
     dlpStudioPanel('Demo Controls','Useful while this is still a mock/prototype environment.',
-      el('div',{class:'dlp-studio-actions'}, walkBtn, fullDemoBtn, exportDemoBtn, importDemoBtn, importFile, seedBtn, reset, exportBtn)
+      el('div',{class:'dlp-studio-actions'}, walkBtn, shipBtn, fullDemoBtn, exportDemoBtn, importDemoBtn, importFile, seedBtn, reset, exportBtn)
     ),
     dlpStudioPanel('Next Cloud Settings','These are placeholders for the real product account layer.',
       dlpStudioRoadmapRow('Users + roles','Owner, admin, field tech, reviewer'),
@@ -3170,6 +3172,197 @@ function dlpStudioPanel(title, note, ...children){
 
 function dlpStudioRoadmapRow(title, detail){
   return el('div',{class:'dlp-studio-roadmap'}, el('strong',{},title), el('span',{},detail));
+}
+
+async function renderDlpPreDatabaseShipBoard(){
+  clear(); enableInactivity();
+  tcLiveSet({current_screen:'drylog-pro/pre-database-ship-board', current_job_id:selectedJob?.job_id||null}, 'DryLog PRO - Ship Board');
+  root.appendChild(buildTopbar('Studio', renderDlpStudioSettings, {showClockLink:true}));
+  const claim_id = selectedJob.job_id;
+  const screen = el('div',{class:'screen dlp-ship-board'});
+  const loading = el('div',{class:'dlp-empty'},'Building pre-database ship board...');
+  screen.appendChild(loading);
+  root.appendChild(screen);
+
+  let job=null, visits=[], rooms=[], zones=[], photos=[], moisture=[], atmos=[], dehu=[], deploys=[], workItems=[], standards=[], alerts=[];
+  try {
+    [job,visits,rooms,zones,photos,moisture,atmos,dehu,deploys,workItems,standards,alerts] = await Promise.all([
+      apiGet(`/jobs/${claim_id}`).catch(()=>null),
+      apiGet(`/visits?job_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/claim-rooms?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/drying-zones?claim_id=${claim_id}&include_closed=1`).catch(()=>[]),
+      apiGet(`/entity-attachments?entity_type=visit&claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/moisture?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/zone-atmosphere?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/readings/dehu?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/equipment-deploys?job_id=${claim_id}&active=1`).catch(()=>[]),
+      apiGet(`/room-work-items?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/claim-material-standards?claim_id=${claim_id}`).catch(()=>[]),
+      apiGet(`/alerts?claim_id=${claim_id}&state=open`).catch(()=>[]),
+    ]);
+  } catch(e) {}
+
+  let surfaces=[], points=[], sketches=[];
+  try {
+    const surfaceLists = await Promise.all((zones || []).map(z => apiGet(`/claim-surfaces?drying_zone_id=${z.id}`).catch(()=>[])));
+    surfaces = surfaceLists.flat().filter(Boolean);
+    const pointLists = await Promise.all(surfaces.map(s => apiGet(`/reading-points?claim_surface_id=${s.id}`).catch(()=>[])));
+    points = pointLists.flat().filter(Boolean);
+    const sketchLists = await Promise.all((zones || []).map(z => apiGet(`/drying-zones/${z.id}/sketch-cad`).catch(()=>null)));
+    sketches = sketchLists.map((sk, i) => ({zone: zones[i], sketch: sk?.data || sk})).filter(x => x.sketch?.state_json);
+  } catch(e) {}
+  loading.remove();
+
+  const imagePhotos = (photos || []).filter(p => /^image\//.test(String(p.mime_type || '')) || /\.(jpe?g|png|gif|webp|svg|heic)$/i.test(String(p.original_name || p.file_url || '')));
+  const scopeTotals = dlpScopeTotals(workItems || []);
+  const proofStats = dlpPhotoProofStats(imagePhotos, rooms || []);
+  const cadRows = sketches.flatMap(x => dlpReportCadRowsFromState(x.sketch.state_json, x.zone));
+  const latestByPoint = {};
+  (moisture || []).forEach(m => {
+    const k = String(m.reading_point_id || '');
+    if (k && (!latestByPoint[k] || String(m.reading_at || '') > String(latestByPoint[k].reading_at || ''))) latestByPoint[k] = m;
+  });
+  const latestMoisture = Object.values(latestByPoint);
+  const dryPoints = latestMoisture.filter(m => Number(m.is_dry_at_time || 0) === 1).length;
+  const matrix = dlpBuildDryingMatrix({visits, moisture, points, surfaces, zones});
+  const totalReadings = (moisture || []).length + (atmos || []).length + (dehu || []).length;
+  const lanes = dlpShipBoardLanes({
+    visits, rooms, zones, photos:imagePhotos, moisture, atmos, dehu, deploys,
+    workItems, standards, alerts, surfaces, points, cadRows, scopeTotals,
+    proofStats, latestMoisture, dryPoints, matrix, totalReadings
+  });
+  const done = lanes.filter(l => l.done).length;
+  const score = Math.round(done / lanes.length * 100);
+  const dbBlueprint = dlpDatabaseBlueprint({
+    job, visits, rooms, zones, surfaces, points, moisture, atmos, dehu,
+    photos:imagePhotos, deploys, workItems, standards, alerts, cadRows, matrix
+  });
+
+  screen.appendChild(el('section',{class:'dlp-ship-hero'},
+    el('div',{},
+      el('div',{class:'dlp-tools-kicker'},'Pre-database ship board'),
+      el('h1',{}, score + '% ready'),
+      el('p',{}, 'One command screen for the last 10 prototype lanes before the real database layer.')
+    ),
+    el('div',{class:'dlp-tools-score'}, el('strong',{}, String(lanes.length - done)), el('span',{}, 'left'))
+  ));
+
+  screen.appendChild(el('section',{class:'dlp-ship-kpis'},
+    dlpShipKpi('Visits', String((visits || []).length), (visits || []).length >= 5 ? 'five-day job' : 'needs depth'),
+    dlpShipKpi('Readings', String(totalReadings), `${dryPoints}/${latestMoisture.length || 0} dry`),
+    dlpShipKpi('Scope', String(scopeTotals.count), scopeTotals.open ? scopeTotals.open + ' open' : 'clean'),
+    dlpShipKpi('Photos', String(imagePhotos.length), proofStats.score + '% proof'),
+    dlpShipKpi('CAD', String(cadRows.length), cadRows.length ? 'measured rooms' : 'missing')
+  ));
+
+  const actions = el('section',{class:'dlp-ship-actions'},
+    dlpDemoRoute('Daily Visit', 'field flow', renderDlpDailyVisitWizard, true),
+    dlpDemoRoute('Scope Tool', `${scopeTotals.count} lines`, renderDlpScopeReview),
+    dlpDemoRoute('Sketch CAD', cadRows.length ? 'review drawing' : 'build sketch', () => zones.length ? renderDlpCadSketch(zones[0].id) : renderDlpSurfacesList()),
+    dlpDemoRoute('Report Packet', score + '% board', renderDlpReportReview),
+    (() => {
+      const b = dlpDemoRoute('Database Blueprint', 'download JSON', () => _dlpCadDownloadJson('drylog-database-blueprint.json', dbBlueprint));
+      return b;
+    })()
+  );
+  screen.appendChild(actions);
+
+  const grid = el('section',{class:'dlp-ship-grid'});
+  lanes.forEach((lane, index) => grid.appendChild(dlpShipLaneCard(lane, index + 1)));
+  screen.appendChild(grid);
+
+  screen.appendChild(dlpShipDatabasePanel(dbBlueprint));
+}
+
+function dlpShipBoardLanes(ctx){
+  return [
+    {title:'Daily visit flow', done:(ctx.visits || []).length >= 5 && ctx.totalReadings >= 30, meta:`${(ctx.visits || []).length} visits / ${ctx.totalReadings} readings`, detail:'Start-to-finish visit path has enough readings, photos, scope, and dehu checks to test.', action:'Open Visit', onClick:renderDlpDailyVisitWizard},
+    {title:'Room scoping', done:ctx.scopeTotals.count >= 8 && ctx.scopeTotals.open === 0, meta:ctx.scopeTotals.open ? ctx.scopeTotals.open + ' open decisions' : ctx.scopeTotals.count + ' lines', detail:'Room-level removed, detached, reset, and consumable line items are represented.', action:'Scope Review', onClick:renderDlpScopeReview},
+    {title:'Estimate totals', done:ctx.scopeTotals.count > 0 && ((ctx.scopeTotals.byUnit.sf || 0) > 0 || (ctx.scopeTotals.byUnit.lf || 0) > 0), meta:`${Math.round(ctx.scopeTotals.byUnit.sf || 0)} sf / ${Math.round(ctx.scopeTotals.byUnit.lf || 0)} lf`, detail:'The prototype can summarize quantities before estimate/pricing integrations.', action:'Work Log', onClick:renderDlpWorkLog},
+    {title:'Sketch / CAD output', done:(ctx.cadRows || []).length >= 3, meta:(ctx.cadRows || []).length ? ctx.cadRows.length + ' measured rooms' : 'missing', detail:'Room geometry, wet areas, openings, and scope context are available for report output.', action:'Sketch', onClick:() => (ctx.zones || []).length ? renderDlpCadSketch(ctx.zones[0].id) : renderDlpSurfacesList()},
+    {title:'Photo proof', done:(ctx.photos || []).length >= 12 && ctx.proofStats.score >= 70, meta:`${(ctx.photos || []).length} photos / ${ctx.proofStats.score}%`, detail:'Arrival, source, equipment, progress, and final proof are strong enough for review.', action:'Photos', onClick:renderDlpPhotos},
+    {title:'Closeout signoff', done:(ctx.alerts || []).length === 0 && ctx.latestMoisture.length > 0 && ctx.dryPoints === ctx.latestMoisture.length, meta:(ctx.alerts || []).length ? ctx.alerts.length + ' alerts' : `${ctx.dryPoints}/${ctx.latestMoisture.length} dry`, detail:'Final walkthrough can rely on dry points, clear alerts, and equipment review.', action:'Closeout', onClick:renderDlpCloseoutWorkflow},
+    {title:'Share preview', done:(ctx.photos || []).length > 0 && ctx.totalReadings > 0 && ctx.rooms.length > 0, meta:'handoff ready', detail:'Customer/adjuster view has enough file detail to tell the job story.', action:'Share', onClick:renderDlpSharePreview},
+    {title:'PDF packet polish', done:ctx.matrix.point_count > 0 && (ctx.cadRows || []).length > 0 && ctx.scopeTotals.count > 0, meta:`${ctx.matrix.dry_count}/${ctx.matrix.point_count} matrix`, detail:'Packet includes handoff, sketch, drying matrix, scope, photos, and signoff.', action:'Report', onClick:renderDlpReportReview},
+    {title:'QA testing screen', done:true, meta:'ship board active', detail:'This board now audits the prototype in one place and routes into each weak spot.', action:'Refresh', onClick:renderDlpPreDatabaseShipBoard},
+    {title:'Database prep', done:ctx.rooms.length > 0 && ctx.points.length > 0 && ctx.workItems.length > 0, meta:'blueprint ready', detail:'A database blueprint export maps the current prototype objects into backend tables.', action:'Export', onClick:()=>_dlpCadDownloadJson('drylog-database-blueprint.json', dlpDatabaseBlueprint(ctx))}
+  ];
+}
+
+function dlpShipKpi(label, value, meta){
+  return el('div',{class:'dlp-ship-kpi'}, el('span',{},label), el('strong',{},value), el('em',{},meta));
+}
+
+function dlpShipLaneCard(lane, index){
+  const card = el('button',{type:'button',class:'dlp-ship-lane ' + (lane.done ? 'done' : 'todo')},
+    el('span',{}, String(index).padStart(2,'0')),
+    el('div',{}, el('strong',{},lane.title), el('em',{},lane.detail)),
+    el('b',{}, lane.meta),
+    el('i',{}, lane.done ? 'Ready' : lane.action)
+  );
+  card.addEventListener('click', lane.onClick || renderDlpPreDatabaseShipBoard);
+  return card;
+}
+
+function dlpShipDatabasePanel(blueprint){
+  const tables = blueprint.tables || [];
+  const panel = el('section',{class:'dlp-ship-db'},
+    el('div',{class:'dlp-demo-section-head'}, el('strong',{},'Database blueprint'), el('span',{}, tables.length + ' tables')),
+    el('p',{},'This is the bridge from mock/local state to the real product database: account ownership, field records, files, reporting, and audit events.')
+  );
+  panel.appendChild(el('div',{class:'dlp-ship-db-grid'}, ...tables.map(t => el('div',{class:'dlp-ship-db-table'},
+    el('strong',{},t.name),
+    el('span',{},t.purpose),
+    el('em',{},(t.fields || []).slice(0, 5).join(', '))
+  ))));
+  return panel;
+}
+
+function dlpDatabaseBlueprint(ctx){
+  const counts = {
+    jobs: ctx.job ? 1 : 0,
+    visits:(ctx.visits || []).length,
+    rooms:(ctx.rooms || []).length,
+    zones:(ctx.zones || []).length,
+    surfaces:(ctx.surfaces || []).length,
+    points:(ctx.points || []).length,
+    moisture_readings:(ctx.moisture || []).length,
+    atmosphere_readings:(ctx.atmos || []).length,
+    dehu_readings:(ctx.dehu || []).length,
+    photos:(ctx.photos || []).length,
+    equipment_deploys:(ctx.deploys || []).length,
+    work_items:(ctx.workItems || []).length
+  };
+  return {
+    generated_at:new Date().toISOString(),
+    prototype_job_id:selectedJob?.job_id || null,
+    counts,
+    tables:[
+      {name:'companies', purpose:'Account ownership, branding, defaults', fields:['id','name','phone','email','theme','report_defaults']},
+      {name:'users', purpose:'Owners, admins, field techs, office reviewers', fields:['id','company_id','role','name','email','active']},
+      {name:'jobs', purpose:'Claim header and loss details', fields:['id','company_id','customer','address','claim_no','loss_type','source_of_loss','status']},
+      {name:'visits', purpose:'Daily field visits and run sheets', fields:['id','job_id','visit_date','visit_type','technician_id','notes']},
+      {name:'rooms', purpose:'Affected and monitored room inventory', fields:['id','job_id','name','length_ft','width_ft','height_ft','flooring']},
+      {name:'drying_zones', purpose:'Chambers, category/class, containment groups', fields:['id','job_id','name','category_of_water','class_of_water','is_closed']},
+      {name:'surfaces', purpose:'Materials, dry standards, and affected assemblies', fields:['id','zone_id','room_id','surface_type','material','dry_goal','is_dry']},
+      {name:'reading_points', purpose:'Mapped meter points tied to surfaces/sketch', fields:['id','surface_id','label','x_ft','y_ft','meter_type']},
+      {name:'moisture_readings', purpose:'Point readings by visit/day', fields:['id','point_id','visit_id','value','unit','dry_goal_snapshot','is_dry']},
+      {name:'psychrometrics', purpose:'Outdoor, chamber, HVAC, and dehu readings', fields:['id','job_id','zone_id','visit_id','type','temp_f','rh_pct','gpp']},
+      {name:'equipment_deploys', purpose:'Equipment placement, days, readings, return', fields:['id','job_id','zone_id','equipment_id','deployed_at','returned_at']},
+      {name:'work_items', purpose:'Scope, removals, resets, consumables, notes', fields:['id','room_id','visit_id','item_type','category','qty','unit','status']},
+      {name:'attachments', purpose:'Photos, scans, PDFs, signatures', fields:['id','job_id','entity_type','entity_id','file_url','mime_type','caption']},
+      {name:'sketches', purpose:'CAD/scan geometry and room connectors', fields:['id','zone_id','state_json','scan_meta','version','updated_at']},
+      {name:'reports', purpose:'Generated packets, share links, audit status', fields:['id','job_id','readiness_score','packet_json','pdf_url','shared_at']},
+      {name:'audit_events', purpose:'Offline sync, edits, signatures, review trail', fields:['id','company_id','job_id','user_id','event_type','payload','created_at']}
+    ],
+    next_backend_steps:[
+      'Create company/user auth and role gates.',
+      'Move mock endpoints into database-backed API routes.',
+      'Store photos/sketch scans in object storage.',
+      'Add migration scripts and seed this five-day demo as fixture data.',
+      'Add audit logging for report edits, signatures, shares, and offline sync.'
+    ]
+  };
 }
 
 async function renderDlpDemoWalkthrough(){
