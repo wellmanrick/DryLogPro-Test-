@@ -4071,6 +4071,166 @@ button[style*="fef2f2"] {
   font-weight: 950;
 }
 
+.dlp-report-matrix {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #c9d6dc;
+  border-radius: var(--dlp-radius);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(242,247,248,.94)),
+    repeating-linear-gradient(0deg, rgba(8,125,138,.035) 0 1px, transparent 1px 18px);
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-report-matrix-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.dlp-report-matrix-head span,
+.dlp-packet-matrix > strong {
+  display: block;
+  color: var(--dlp-cyan);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.dlp-report-matrix-head strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--dlp-ink);
+  font-family: "Bahnschrift", "Aptos Display", "Segoe UI", sans-serif;
+  font-size: 25px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.dlp-report-matrix-head em {
+  display: block;
+  margin-top: 5px;
+  color: var(--dlp-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 780;
+}
+
+.dlp-report-matrix-head button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid #172026;
+  border-radius: var(--dlp-radius-sm);
+  background: #172026;
+  color: #ffffff;
+  font-weight: 950;
+}
+
+.dlp-drying-matrix-table {
+  overflow-x: auto;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-drying-matrix-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.28fr) minmax(86px, .7fr) 78px repeat(5, minmax(58px, .52fr)) 88px;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 860px;
+  min-height: 42px;
+  padding: 8px;
+  border-bottom: 1px solid rgba(201,214,220,.68);
+}
+
+.dlp-drying-matrix-row:last-child {
+  border-bottom: 0;
+}
+
+.dlp-drying-matrix-row.head {
+  min-height: 36px;
+  background: #172026;
+}
+
+.dlp-drying-matrix-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dlp-drying-matrix-row strong {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  color: var(--dlp-ink);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.dlp-drying-matrix-row strong em {
+  color: var(--dlp-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.dlp-drying-matrix-row span {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border-radius: 7px;
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-weight: 880;
+  text-align: center;
+}
+
+.dlp-drying-matrix-row.head span {
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.dlp-drying-matrix-row span.ok {
+  background: #e1f4ea;
+  color: #147247;
+}
+
+.dlp-drying-matrix-row span.read {
+  background: #f2f7f8;
+  color: var(--dlp-ink);
+}
+
+.dlp-drying-matrix-row span.empty {
+  background: #f7fafb;
+  color: #9aa8af;
+}
+
+.dlp-drying-matrix-row.watch {
+  background: #fffaf0;
+}
+
+.dlp-drying-matrix-row.dry {
+  background: #fbfffd;
+}
+
+.dlp-packet-matrix {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.dlp-packet-matrix .dlp-drying-matrix-row {
+  min-width: 820px;
+}
+
 .dlp-report-closeout {
   display: grid;
   gap: 12px;
@@ -7615,6 +7775,7 @@ img {
   .dlp-report-proof-head,
   .dlp-report-proof-grid,
   .dlp-report-handoff-head,
+  .dlp-report-matrix-head,
   .dlp-report-handoff-grid,
   .dlp-report-closeout-head,
   .dlp-report-closeout-grid,

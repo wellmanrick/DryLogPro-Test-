@@ -2403,6 +2403,7 @@ async function renderDlpReportReview(){
   const firstVisit = visits.map(v => v.visit_date).sort()[0] || '';
   const lastVisit = visits.map(v => v.visit_date).sort().slice(-1)[0] || '';
   const narrativeLines = dlpReportNarrativeLines({job, rooms, zones, surfaces, latestMoisture, imagePhotos, deploys, blockers, cadRows, cadTotals});
+  const dryingMatrix = dlpBuildDryingMatrix({visits, moisture, points, surfaces, zones});
   const handoff = dlpReportHandoffSummary({
     score, blockers, alerts, rooms, zones, visits, imagePhotos, proofStats,
     workItems, scopeTotals, deploys, dehu, moisture, atmos, latestMoisture,
@@ -2411,7 +2412,7 @@ async function renderDlpReportReview(){
   const reportPackage = dlpBuildReportPackage({
     job, visits, rooms, zones, tasks, alerts, imagePhotos, workItems, deploys,
     moisture, atmos, dehu, standards, surfaces, points, checks, score,
-    cadRows, cadTotals, narrativeLines, handoff
+    cadRows, cadTotals, narrativeLines, handoff, dryingMatrix
   });
 
   screen.appendChild(el('section',{class:'dlp-report-hero'},
@@ -2440,6 +2441,7 @@ async function renderDlpReportReview(){
   ));
   screen.appendChild(dlpReportProofPanel(proofStats, photoProof));
   screen.appendChild(dlpReportHandoffPanel(handoff));
+  screen.appendChild(dlpReportDryingMatrixPanel(dryingMatrix));
 
   screen.appendChild(dlpReportCloseoutPath({
     score, blockers, alerts, rooms, zones, sketches, cadRows, surfaces,
@@ -2524,6 +2526,7 @@ async function renderDlpReportReview(){
   if (dlpStudioSectionOn(studio, 'readings')) packet.appendChild(dlpPacketSection('Readings Summary', [
     el('p',{}, `${latestMoisture.length} current moisture point${latestMoisture.length===1?'':'s'} are represented from ${moisture.length} total moisture reading${moisture.length===1?'':'s'}.`),
     el('p',{}, `${atmos.length} chamber atmosphere reading${atmos.length===1?'':'s'} and ${dehu.length} dehumidifier performance reading${dehu.length===1?'':'s'} are available for psychrometric review.`),
+    dlpPacketDryingMatrix(dryingMatrix),
     dlpPacketDryingVisuals(latestMoisture, atmos, dehu)
   ]));
   if (dlpStudioSectionOn(studio, 'equipment')) packet.appendChild(dlpPacketSection('Equipment And Work Performed', [
@@ -2539,6 +2542,136 @@ async function renderDlpReportReview(){
   ));
   if (dlpStudioSectionOn(studio, 'photos')) packet.appendChild(dlpPacketSection('Photo Appendix', photoNodes.length ? [el('div',{class:'dlp-packet-photos'}, ...photoNodes)] : [el('p',{},'No report photos attached yet.')]));
   screen.appendChild(packet);
+}
+
+function dlpBuildDryingMatrix(ctx){
+  const visits = (ctx.visits || [])
+    .slice()
+    .sort((a,b)=>String(a.visit_date || a.created_at || '').localeCompare(String(b.visit_date || b.created_at || '')))
+    .slice(-5);
+  const pointById = {};
+  (ctx.points || []).forEach(p => { pointById[String(p.id)] = p; });
+  const surfaceById = {};
+  (ctx.surfaces || []).forEach(s => { surfaceById[String(s.id)] = s; });
+  const zoneById = {};
+  (ctx.zones || []).forEach(z => { zoneById[String(z.id)] = z; });
+  const rowsByPoint = {};
+  (ctx.points || []).forEach(p => {
+    const surface = surfaceById[String(p.claim_surface_id)] || {};
+    const zone = zoneById[String(surface.drying_zone_id)] || {};
+    rowsByPoint[String(p.id)] = {
+      point_id: p.id,
+      point: p.point_label || ('Point ' + p.id),
+      location: surface.surface_label || zone.name || 'Unassigned area',
+      material: dlpTitleCase(surface.material || surface.surface_type || 'Material'),
+      goal: surface.dry_goal != null ? Number(surface.dry_goal) : null,
+      unit: surface.dry_goal_unit || '%MC',
+      values: {},
+      final: null,
+      dry: false
+    };
+  });
+  (ctx.moisture || []).forEach(m => {
+    const key = String(m.reading_point_id || '');
+    if (!key) return;
+    const point = pointById[key] || {};
+    const surface = surfaceById[String(m.claim_surface_id || point.claim_surface_id)] || {};
+    const zone = zoneById[String(m.drying_zone_id || surface.drying_zone_id)] || {};
+    if (!rowsByPoint[key]) {
+      rowsByPoint[key] = {
+        point_id: m.reading_point_id,
+        point: m.point_label || point.point_label || ('Point ' + m.reading_point_id),
+        location: surface.surface_label || zone.name || 'Unassigned area',
+        material: dlpTitleCase(surface.material || surface.surface_type || 'Material'),
+        goal: m.dry_goal_snapshot != null ? Number(m.dry_goal_snapshot) : surface.dry_goal != null ? Number(surface.dry_goal) : null,
+        unit: m.moisture_unit || surface.dry_goal_unit || '%MC',
+        values: {},
+        final: null,
+        dry: false
+      };
+    }
+    const row = rowsByPoint[key];
+    const visitKey = String(m.visit_id || '');
+    if (!visitKey) return;
+    const current = row.values[visitKey];
+    if (!current || String(m.reading_at || '') > String(current.reading_at || '')) {
+      row.values[visitKey] = {
+        value: Number(m.moisture_value),
+        unit: m.moisture_unit || row.unit,
+        reading_at: m.reading_at || '',
+        dry: Number(m.is_dry_at_time || 0) === 1
+      };
+    }
+  });
+  const rows = Object.values(rowsByPoint).map(row => {
+    const ordered = visits.map(v => row.values[String(v.id)] || null).filter(Boolean);
+    row.final = ordered.length ? ordered[ordered.length - 1] : null;
+    const goal = row.goal != null ? Number(row.goal) : null;
+    row.dry = row.final ? (row.final.dry || (goal != null && Number(row.final.value) <= goal)) : false;
+    return row;
+  }).filter(row => visits.some(v => row.values[String(v.id)]));
+  return {
+    days: visits.map((v,i)=>({visit_id:v.id, label:'Day ' + (i + 1), date:v.visit_date || v.created_at || ''})),
+    rows,
+    dry_count: rows.filter(r => r.dry).length,
+    point_count: rows.length
+  };
+}
+
+function dlpReportDryingMatrixPanel(matrix){
+  const panel = el('section',{class:'dlp-report-matrix'});
+  panel.appendChild(el('div',{class:'dlp-report-matrix-head'},
+    el('div',{}, el('span',{},'Drying matrix'), el('strong',{}, `${matrix.dry_count || 0}/${matrix.point_count || 0} at goal`), el('em',{},'Last five visits by reading point')),
+    (() => { const b=el('button',{type:'button'},'Open Trends'); b.addEventListener('click',renderDlpDryingProgress); return b; })()
+  ));
+  if (!matrix.rows.length || !matrix.days.length) {
+    panel.appendChild(el('div',{class:'dlp-command-empty'},'No moisture trend rows are ready yet. Capture room readings to build the matrix.'));
+    return panel;
+  }
+  panel.appendChild(dlpDryingMatrixTable(matrix, 'report'));
+  return panel;
+}
+
+function dlpDryingMatrixTable(matrix, mode){
+  const days = (matrix.days || []).slice(0, 5);
+  const table = el('div',{class:'dlp-drying-matrix-table ' + (mode || '')});
+  table.appendChild(el('div',{class:'dlp-drying-matrix-row head'},
+    el('span',{},'Point'),
+    el('span',{},'Material'),
+    el('span',{},'Goal'),
+    ...days.map(d => el('span',{}, d.label)),
+    el('span',{},'Final')
+  ));
+  (matrix.rows || []).forEach(row => {
+    table.appendChild(el('div',{class:'dlp-drying-matrix-row ' + (row.dry ? 'dry' : 'watch')},
+      el('strong',{}, row.point, el('em',{}, row.location)),
+      el('span',{}, row.material || 'Material'),
+      el('span',{}, row.goal != null ? `${row.goal} ${row.unit || ''}` : 'No goal'),
+      ...days.map(d => {
+        const cell = row.values[String(d.visit_id)];
+        return el('span',{class:cell ? (cell.dry ? 'ok' : 'read') : 'empty'}, cell ? dlpMatrixValue(cell) : '-');
+      }),
+      el('span',{class:row.dry ? 'ok' : 'read'}, row.dry ? 'At goal' : 'Review')
+    ));
+  });
+  return table;
+}
+
+function dlpPacketDryingMatrix(matrix){
+  if (!matrix || !matrix.rows || !matrix.rows.length) return el('p',{},'No moisture matrix is available yet.');
+  return el('div',{class:'dlp-packet-matrix'},
+    el('strong',{}, `${matrix.dry_count}/${matrix.point_count} current points at goal`),
+    dlpDryingMatrixTable(matrix, 'packet')
+  );
+}
+
+function dlpMatrixValue(cell){
+  if (!cell || cell.value == null || Number.isNaN(Number(cell.value))) return '-';
+  return Number(cell.value).toFixed(Number(cell.value) % 1 === 0 ? 0 : 1);
+}
+
+function dlpTitleCase(value){
+  return String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 
@@ -2809,6 +2942,7 @@ function dlpBuildReportPackage(ctx){
       },
       rooms: ctx.cadRows || [],
     },
+    drying_matrix: ctx.dryingMatrix || null,
     handoff: ctx.handoff || null,
     narrative: ctx.narrativeLines || [],
   };
