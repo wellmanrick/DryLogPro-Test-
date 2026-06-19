@@ -153,6 +153,7 @@ function seedDemo() {
   state.workItems.push({
     id: nextId(), company_id: 1, claim_room_id: room.id, visit_id: visit.id,
     item_type: 'demo', label: 'Removed sink base toe kick and wet baseboard',
+    category: 'toe_kick', phase: 'detach', scope_status: 'removed',
     qty: 1, unit: 'ea', notes: 'Documented affected wall cavity.', created_at: hoursAgoSql(3)
   });
   state.alerts.push({
@@ -192,7 +193,330 @@ async function handleApi(req, res, url) {
   if (resource === 'readings') return readings(req, res, parts.slice(1), url, body);
   if (resource === 'entity-attachments') return attachments(req, res, id, url, body);
   if (resource === 'sizing') return sizing(req, res, action, body);
+  if (resource === 'demo') return demo(req, res, action, body);
   return sendJson(res, 404, { ok: false, error: 'Mock route not found' });
+}
+
+function demo(req, res, action, body) {
+  if (req.method === 'POST' && action === 'seed-full') {
+    const job = seedFullDemoJob();
+    return sendOk(res, { job, counts: demoCounts(job.id) }, 201);
+  }
+  if (req.method === 'GET' && action === 'export') {
+    return sendOk(res, {
+      exported_at: nowSql(),
+      version: 1,
+      state: cloneState()
+    });
+  }
+  if (req.method === 'POST' && action === 'import') {
+    const imported = body && body.state ? body.state : body;
+    const result = replaceState(imported);
+    return sendOk(res, result);
+  }
+  return send404(res);
+}
+
+function seedFullDemoJob() {
+  const stamp = Math.floor(Math.random() * 9000 + 1000);
+  const job = {
+    id: nextId(),
+    company_id: 1,
+    customer: 'Full Demo Loss ' + stamp,
+    address: stamp + ' Fieldstone Court',
+    claim_no: 'FD-' + stamp,
+    loss_type: 'Water mitigation',
+    source_of_loss: 'Dishwasher supply line',
+    status: 'open',
+    updated_at: nowSql()
+  };
+  state.jobs.unshift(job);
+
+  const visit0 = makeVisit(job.id, dateDaysAgo(3), 0, 'initial');
+  const visit1 = makeVisit(job.id, dateDaysAgo(2), 1, 'followup');
+  const visit2 = makeVisit(job.id, dateDaysAgo(1), 2, 'followup');
+  const visit3 = makeVisit(job.id, today(), 3, 'followup');
+  state.visits.push(visit0, visit1, visit2, visit3);
+
+  const kitchen = Object.assign(makeRoom(job.id, 'Kitchen', 1), { length_ft: 15, width_ft: 12, height_ft: 8 });
+  const laundry = Object.assign(makeRoom(job.id, 'Laundry Room', 2), { length_ft: 9, width_ft: 8, height_ft: 8 });
+  const hallway = Object.assign(makeRoom(job.id, 'Hallway', 3), { length_ft: 18, width_ft: 4, height_ft: 8 });
+  const living = Object.assign(makeRoom(job.id, 'Living Room', 4), { length_ft: 16, width_ft: 14, height_ft: 8 });
+  state.rooms.push(kitchen, laundry, hallway, living);
+
+  state.standards.push(
+    { id: nextId(), company_id: 1, claim_id: job.id, material: 'drywall', dry_goal: 15, dry_goal_unit: '%MC', meter_type: 'pin' },
+    { id: nextId(), company_id: 1, claim_id: job.id, material: 'wood', dry_goal: 12, dry_goal_unit: '%MC', meter_type: 'pin' },
+    { id: nextId(), company_id: 1, claim_id: job.id, material: 'subfloor', dry_goal: 14, dry_goal_unit: '%MC', meter_type: 'pin' },
+    { id: nextId(), company_id: 1, claim_id: job.id, material: 'concrete', dry_goal: 65, dry_goal_unit: '%WME', meter_type: 'non-pin' }
+  );
+
+  const chamber = makeZone(job.id, 'Kitchen / Laundry Chamber', [kitchen.id, laundry.id, hallway.id], 2, 3);
+  const monitored = makeZone(job.id, 'Living Room Monitor Zone', [living.id], 2, 2);
+  monitored.zone_index = chamber.zone_index + 1;
+  chamber.sketch_cad_json = buildFullDemoSketch(kitchen, laundry, hallway, living);
+  state.zones.push(chamber, monitored);
+
+  const surfaces = [
+    Object.assign(makeSurface(chamber.id, 'wall', 'Kitchen sink wall', 'drywall'), { dry_goal: 15 }),
+    Object.assign(makeSurface(chamber.id, 'floor', 'Kitchen subfloor at dishwasher', 'subfloor'), { dry_goal: 14 }),
+    Object.assign(makeSurface(chamber.id, 'cabinet', 'Sink base cabinet side panel', 'wood'), { dry_goal: 12 }),
+    Object.assign(makeSurface(chamber.id, 'baseboard', 'Hallway baseboard run', 'wood'), { dry_goal: 12 }),
+    Object.assign(makeSurface(chamber.id, 'wall', 'Laundry shared wall', 'drywall'), { dry_goal: 15 }),
+    Object.assign(makeSurface(monitored.id, 'floor', 'Living room slab edge', 'concrete'), { dry_goal: 65, dry_goal_unit: '%WME' })
+  ];
+  state.surfaces.push(...surfaces);
+
+  const points = [
+    makePoint(surfaces[0].id, 'K-W1'),
+    makePoint(surfaces[1].id, 'K-F1'),
+    makePoint(surfaces[2].id, 'K-C1'),
+    makePoint(surfaces[3].id, 'H-B1'),
+    makePoint(surfaces[4].id, 'L-W1'),
+    makePoint(surfaces[5].id, 'LV-F1')
+  ];
+  state.points.push(...points);
+
+  const dehu = ensureEquipment('LGR Dehu', 'Phoenix', 'DryMAX XL', 'PX-DMX-' + stamp, 'DEHU-FD-' + stamp, { capacity_ppd: 125, aham_ppd: 76 });
+  const am1 = ensureEquipment('Air Mover', 'Dri-Eaz', 'Velo Pro', 'AM-VP-' + stamp + '-1', 'AM-FD-1');
+  const am2 = ensureEquipment('Air Mover', 'Dri-Eaz', 'Velo Pro', 'AM-VP-' + stamp + '-2', 'AM-FD-2');
+  const hepa = ensureEquipment('Air Scrubber', 'Dri-Eaz', 'HEPA 700', 'AS-HP-' + stamp, 'HEPA-FD-' + stamp);
+  const chamberDeploys = [makeDeploy(dehu.id, job.id, chamber.id), makeDeploy(am1.id, job.id, chamber.id), makeDeploy(am2.id, job.id, chamber.id), makeDeploy(hepa.id, job.id, chamber.id)];
+  chamberDeploys.forEach((dep, i) => { dep.deployed_at = hoursAgoSql(70 - i); });
+  state.deploys.push(...chamberDeploys, makeDeploy(2, job.id, monitored.id));
+
+  seedDemoReadings(job.id, chamber, monitored, [visit0, visit1, visit2, visit3], points, chamberDeploys[0]);
+  seedDemoWork(job.id, kitchen, laundry, hallway, [visit0, visit1, visit2]);
+  seedDemoPhotos(visit0, visit1, visit2, visit3, kitchen, laundry, hallway);
+  seedTasks(job.id, 'cat2');
+  completeDemoTasks(job.id);
+  recomputeTasks(job.id);
+
+  state.alerts.push({
+    id: nextId(), company_id: 1, claim_id: job.id, drying_zone_id: chamber.id,
+    alert_type: 'zone_ready_to_close', severity: 'info', state: 'open',
+    title: 'Kitchen chamber nearing closeout',
+    message: 'Most points are at or below goal. Capture final readings and review equipment pull.',
+    created_at: hoursAgoSql(2)
+  });
+  return job;
+}
+
+function seedDemoReadings(jobId, chamber, monitored, visits, points, dehuDeploy) {
+  const moistures = [
+    [31.8, 25.4, 18.6, 14.8],
+    [24.9, 20.7, 16.2, 13.7],
+    [19.8, 16.4, 12.8, 11.7],
+    [17.6, 14.2, 12.3, 11.4],
+    [28.5, 23.1, 18.0, 14.9],
+    [78.0, 71.0, 66.0, 63.0]
+  ];
+  visits.forEach((visit, day) => {
+    state.referenceReadings.push(makeReferenceReading({
+      job_id: jobId,
+      visit_id: visit.id,
+      location_label: day === 0 ? 'Outdoor baseline' : 'Outdoor check',
+      temp_f: [83, 81, 78, 76][day],
+      rh_pct: [72, 68, 62, 58][day],
+      reading_at: hoursAgoSql(72 - day * 24)
+    }));
+    state.zoneAtmosphereReadings.push(
+      makeZoneAtmosphereReading({ drying_zone_id: chamber.id, visit_id: visit.id, temp_f: [76, 78, 77, 75][day], rh_pct: [64, 52, 44, 39][day], reading_at: hoursAgoSql(70 - day * 22) }),
+      makeZoneAtmosphereReading({ drying_zone_id: monitored.id, visit_id: visit.id, temp_f: [74, 75, 75, 74][day], rh_pct: [58, 51, 47, 43][day], reading_at: hoursAgoSql(69 - day * 22) })
+    );
+    points.forEach((point, i) => {
+      state.moistureReadings.push(makeMoistureReading({
+        reading_point_id: point.id,
+        visit_id: visit.id,
+        moisture_value: moistures[i][day],
+        moisture_unit: i === 5 ? '%WME' : '%MC',
+        reading_at: hoursAgoSql(68 - day * 22 - i * 0.1)
+      }));
+    });
+    state.dehuReadings.push(makeDehuReading({
+      drying_zone_id: chamber.id,
+      equipment_deploy_id: dehuDeploy.id,
+      visit_id: visit.id,
+      intake_temp_f: [76, 78, 77, 75][day],
+      intake_rh_pct: [64, 52, 44, 39][day],
+      exhaust_temp_f: [94, 96, 95, 93][day],
+      exhaust_rh_pct: [31, 27, 24, 21][day],
+      reading_at: hoursAgoSql(67 - day * 22)
+    }));
+  });
+}
+
+function seedDemoWork(jobId, kitchen, laundry, hallway, visits) {
+  state.workItems.push(
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'toe_kick', phase: 'detach', scope_status: 'detached', label: 'Detached sink base toe kick', qty: 1, unit: 'ea', notes: 'Toe kick bagged and labeled for carrier review.', created_at: hoursAgoSql(69) },
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[0].id, item_type: 'demo', category: 'baseboard', phase: 'remove', scope_status: 'removed', label: 'Removed affected baseboard', qty: 18, unit: 'lf', notes: 'Kitchen sink wall and hall transition.', created_at: hoursAgoSql(68) },
+    { id: nextId(), company_id: 1, claim_room_id: laundry.id, visit_id: visits[1].id, item_type: 'demo', category: 'drywall_wall', phase: 'remove', scope_status: 'removed', label: 'Opened wall cavity for drying', qty: 12, unit: 'sf', notes: 'Clean cut below cabinet return.', created_at: hoursAgoSql(45) },
+    { id: nextId(), company_id: 1, claim_room_id: hallway.id, visit_id: visits[1].id, item_type: 'consumable', category: 'antimicrobial', phase: 'clean', scope_status: 'used', label: 'Applied antimicrobial', qty: 1, unit: 'gal', notes: 'Affected base plate and subfloor seam.', created_at: hoursAgoSql(44) },
+    { id: nextId(), company_id: 1, claim_room_id: kitchen.id, visit_id: visits[2].id, item_type: 'scope', category: 'air_mover_adjust', phase: 'drying', scope_status: 'needed', label: 'Equipment monitoring and adjustment', qty: 1, unit: 'hr', notes: 'Moved one air mover to toe-kick cavity.', created_at: hoursAgoSql(22) }
+  );
+  const job = state.jobs.find(j => j.id === jobId);
+  if (job) job.updated_at = nowSql();
+}
+
+function seedDemoPhotos(visit0, visit1, visit2, visit3, kitchen, laundry, hallway) {
+  const photos = [
+    [visit0.id, kitchen.id, '[Arrival] Front elevation and access path', 71],
+    [visit0.id, kitchen.id, '[Source] Dishwasher supply line after shutoff', 70],
+    [visit0.id, kitchen.id, '[Before] Kitchen sink wall and toe kick', 69],
+    [visit0.id, hallway.id, '[Equipment] Initial chamber and containment setup', 67],
+    [visit1.id, kitchen.id, '[Progress] Baseboard removed and cavity exposed', 45],
+    [visit1.id, laundry.id, '[Progress] Laundry shared wall drying access', 44],
+    [visit2.id, kitchen.id, '[Equipment] Air mover repositioned into cavity', 22],
+    [visit2.id, hallway.id, '[Progress] Hallway baseboard at dry goal', 21],
+    [visit3.id, kitchen.id, '[After] Kitchen readings at goal', 2],
+    [visit3.id, laundry.id, '[Final] Laundry chamber ready for review', 1]
+  ];
+  photos.forEach(([visitId, roomId, caption, ago]) => {
+    const photo = makeAttachment(visitId, caption, 'mock-photo.svg', hoursAgoSql(ago));
+    photo.claim_room_id = roomId;
+    state.attachments.push(photo);
+  });
+}
+
+function completeDemoTasks(claimId) {
+  const completeCodes = [
+    'source_of_loss', 'cat_of_water', 'class_of_water', 'room_inventory',
+    'define_zones', 'define_surfaces', 'define_reading_points', 'equipment_placed',
+    'baseline_outdoor', 'zone_atmosphere', 'moisture_readings',
+    'dehu_performance', 'daily_visit_complete', 'dry_goal_hit'
+  ];
+  state.tasks.filter(t => t.claim_id === claimId && completeCodes.includes(t.code)).forEach(t => {
+    t.state = 'complete';
+  });
+}
+
+function buildFullDemoSketch(kitchen, laundry, hallway, living) {
+  return {
+    version: 2,
+    scale: 18,
+    rooms: [
+      { x: 60, y: 60, w: 270, h: 216, label: kitchen.name, ceiling_height_ft: kitchen.height_ft, area_sf: 180, linear_ft: 54, wall_sf: 432 },
+      { x: 330, y: 60, w: 162, h: 144, label: laundry.name, ceiling_height_ft: laundry.height_ft, area_sf: 72, linear_ft: 34, wall_sf: 272 },
+      { x: 60, y: 276, w: 432, h: 72, label: hallway.name, ceiling_height_ft: hallway.height_ft, area_sf: 72, linear_ft: 44, wall_sf: 352 },
+      { x: 60, y: 348, w: 288, h: 252, label: living.name, ceiling_height_ft: living.height_ft, area_sf: 224, linear_ft: 60, wall_sf: 480 }
+    ],
+    walls: [
+      { x1: 60, y1: 60, x2: 492, y2: 60 },
+      { x1: 492, y1: 60, x2: 492, y2: 348 },
+      { x1: 492, y1: 348, x2: 60, y2: 348 },
+      { x1: 60, y1: 348, x2: 60, y2: 60 },
+      { x1: 330, y1: 60, x2: 330, y2: 276 },
+      { x1: 60, y1: 276, x2: 492, y2: 276 },
+      { x1: 60, y1: 348, x2: 348, y2: 348 },
+      { x1: 348, y1: 348, x2: 348, y2: 600 },
+      { x1: 348, y1: 600, x2: 60, y2: 600 },
+      { x1: 60, y1: 600, x2: 60, y2: 348 }
+    ],
+    doors: [
+      { x: 310, y: 260, w: 48, h: 10, label: 'Kitchen to hall' },
+      { x: 350, y: 198, w: 46, h: 10, label: 'Laundry opening' },
+      { x: 210, y: 348, w: 54, h: 10, label: 'Living entry' }
+    ],
+    windows: [
+      { x: 120, y: 56, w: 72, h: 8, label: 'Kitchen window' },
+      { x: 138, y: 596, w: 84, h: 8, label: 'Living window' }
+    ],
+    openings: [
+      { x: 330, y: 168, w: 12, h: 54, label: 'Open pass-through' }
+    ],
+    equipment: [
+      { x: 235, y: 152, type: 'LGR Dehu', label: 'DEHU-FD' },
+      { x: 150, y: 230, type: 'Air Mover', label: 'AM-1' },
+      { x: 408, y: 132, type: 'Air Mover', label: 'AM-2' },
+      { x: 395, y: 304, type: 'Air Scrubber', label: 'HEPA' }
+    ],
+    points: [
+      { x: 170, y: 84, label: 'K-W1', value: 14.8 },
+      { x: 230, y: 178, label: 'K-F1', value: 13.7 },
+      { x: 304, y: 112, label: 'K-C1', value: 11.7 },
+      { x: 270, y: 316, label: 'H-B1', value: 11.4 },
+      { x: 406, y: 92, label: 'L-W1', value: 14.9 }
+    ],
+    water: [
+      { roomIdx: 0, x: 112, y: 88, w: 188, h: 132, label: 'Primary wet area' },
+      { roomIdx: 1, x: 342, y: 84, w: 126, h: 82, label: 'Migration' },
+      { roomIdx: 2, x: 92, y: 290, w: 260, h: 42, label: 'Baseboard migration' }
+    ],
+    texts: [
+      { x: 82, y: 42, text: 'Cat 2 / Class 3 chamber' },
+      { x: 370, y: 580, text: 'Unaffected monitor area' }
+    ],
+    annotations: [
+      { x: 212, y: 252, text: 'Containment zipper' },
+      { x: 114, y: 252, text: 'Toe kick removed' }
+    ]
+  };
+}
+
+function ensureEquipment(type, make, model, serialNo, assetTag, extra) {
+  const existing = state.equipment.find(e => e.asset_tag === assetTag || e.serial_no === serialNo);
+  if (existing) return existing;
+  const item = Object.assign({
+    id: nextId(), company_id: 1, type, make, model, serial_no: serialNo, asset_tag: assetTag
+  }, extra || {});
+  state.equipment.push(item);
+  return item;
+}
+
+function demoCounts(jobId) {
+  const zoneIds = state.zones.filter(z => z.claim_id === jobId).map(z => z.id);
+  const roomIds = state.rooms.filter(r => r.claim_id === jobId).map(r => r.id);
+  const surfaceIds = state.surfaces.filter(s => zoneIds.includes(s.drying_zone_id)).map(s => s.id);
+  const pointIds = state.points.filter(p => surfaceIds.includes(p.claim_surface_id)).map(p => p.id);
+  return {
+    rooms: roomIds.length,
+    zones: zoneIds.length,
+    points: pointIds.length,
+    readings: state.moistureReadings.filter(r => r.claim_id === jobId).length,
+    photos: state.attachments.filter(a => state.visits.some(v => v.job_id === jobId && v.id === a.entity_id)).length
+  };
+}
+
+function cloneState() {
+  return JSON.parse(JSON.stringify(state));
+}
+
+function replaceState(imported) {
+  if (!imported || !Array.isArray(imported.jobs)) {
+    throw new Error('Import file is missing DryLog mock job data.');
+  }
+  const keys = Object.keys(state);
+  keys.forEach(key => { delete state[key]; });
+  Object.assign(state, cloneImportState(imported));
+  if (!Number.isFinite(Number(state.nextId))) state.nextId = calculateNextId();
+  return { imported_at: nowSql(), counts: { jobs: state.jobs.length, rooms: state.rooms.length, readings: state.moistureReadings.length, photos: state.attachments.length } };
+}
+
+function cloneImportState(imported) {
+  const blank = {
+    nextId: imported.nextId || 1,
+    jobs: [], visits: [], rooms: [], zones: [], zoneRooms: [], surfaces: [], points: [],
+    tasks: [], alerts: [], standards: [], workItems: [], referenceReadings: [],
+    zoneAtmosphereReadings: [], hvacReadings: [], dehuReadings: [],
+    moistureReadings: [], attachments: [], equipment: [], deploys: []
+  };
+  Object.keys(blank).forEach(key => {
+    if (Array.isArray(blank[key])) blank[key] = Array.isArray(imported[key]) ? imported[key] : [];
+  });
+  blank.nextId = Number(imported.nextId || calculateNextId(blank));
+  return JSON.parse(JSON.stringify(blank));
+}
+
+function calculateNextId(target) {
+  const source = target || state;
+  let max = 0;
+  Object.keys(source).forEach(key => {
+    if (!Array.isArray(source[key])) return;
+    source[key].forEach(row => {
+      if (row && Number(row.id) > max) max = Number(row.id);
+    });
+  });
+  return max + 1;
 }
 
 function jobs(req, res, id, body) {
@@ -751,6 +1075,7 @@ function pick(obj, keys) {
 
 function nextId() { return state.nextId++; }
 function today() { return new Date().toISOString().slice(0, 10); }
+function dateDaysAgo(days) { return new Date(Date.now() - Number(days || 0) * 86400000).toISOString().slice(0, 10); }
 function nowSql() { return new Date().toISOString().slice(0, 19).replace('T', ' '); }
 function hoursAgoSql(hours) { return new Date(Date.now() - Number(hours || 0) * 3600000).toISOString().slice(0, 19).replace('T', ' '); }
 function round(n, places = 1) { return Math.round(Number(n) * Math.pow(10, places)) / Math.pow(10, places); }

@@ -43,17 +43,37 @@
   ];
 
   window.DLP_DEMO_CATALOG = [
-    'Removed baseboard', 'Removed drywall', 'Removed insulation',
-    'Pulled carpet', 'Removed pad', 'Detached cabinet toe kick',
-    'Removed flooring', 'Flood cut'
+    { key:'baseboard', label:'Remove baseboard', unit:'lf', phase:'remove', scope_status:'removed' },
+    { key:'drywall_wall', label:'Remove wet drywall', unit:'sf', phase:'remove', scope_status:'removed' },
+    { key:'insulation', label:'Remove insulation', unit:'sf', phase:'remove', scope_status:'removed' },
+    { key:'carpet_pad', label:'Remove carpet pad', unit:'sf', phase:'remove', scope_status:'removed' },
+    { key:'carpet', label:'Detach carpet', unit:'sf', phase:'detach', scope_status:'detached' },
+    { key:'toe_kick', label:'Detach cabinet toe kick', unit:'ea', phase:'detach', scope_status:'detached' },
+    { key:'hardwood', label:'Remove flooring', unit:'sf', phase:'remove', scope_status:'removed' },
+    { key:'subfloor', label:'Remove subfloor', unit:'sf', phase:'remove', scope_status:'removed' },
+    { key:'flood_cut', label:'Flood cut drywall', unit:'lf', phase:'remove', scope_status:'removed' },
+    { key:'clean_only', label:'Clean / sanitize only', unit:'sf', phase:'clean', scope_status:'cleaned' },
+    { key:'other', label:'Other (type it)', unit:'ea', phase:'scope', scope_status:'needed' }
   ];
 
   window.DLP_CONSUMABLE_CATALOG = [
-    'Poly sheeting', 'Tape', 'Antimicrobial', 'Containment zipper',
-    'Filter', 'Trash bags', 'Floor protection', 'Desiccant'
+    { key:'poly', label:'Poly sheeting', unit:'sf', phase:'containment', scope_status:'used' },
+    { key:'tape', label:'Tape', unit:'roll', phase:'containment', scope_status:'used' },
+    { key:'antimicrobial', label:'Antimicrobial', unit:'gal', phase:'clean', scope_status:'used' },
+    { key:'zipper', label:'Containment zipper', unit:'ea', phase:'containment', scope_status:'used' },
+    { key:'filter', label:'Filter', unit:'ea', phase:'equipment', scope_status:'used' },
+    { key:'trash_bags', label:'Trash bags', unit:'bag', phase:'debris', scope_status:'used' },
+    { key:'floor_protection', label:'Floor protection', unit:'sf', phase:'protection', scope_status:'used' },
+    { key:'desiccant', label:'Desiccant', unit:'ea', phase:'drying', scope_status:'used' },
+    { key:'other', label:'Other (type it)', unit:'ea', phase:'scope', scope_status:'used' }
   ];
 
-  window.DLP_WORK_UNITS = ['ea', 'lf', 'sf', 'bag', 'gal', 'hr'];
+  window.DLP_SCOPE_STATUSES = [
+    ['needed','Needed'], ['removed','Removed'], ['detached','Detached'],
+    ['cleaned','Cleaned'], ['used','Used'], ['reset','Reset'], ['not_needed','Not needed']
+  ];
+
+  window.DLP_WORK_UNITS = ['ea', 'lf', 'sf', 'bag', 'gal', 'hr', 'roll'];
 
   window.DLP_DRY_GOAL_CLASSES = [
     { material: 'drywall', label: 'Drywall', unit: '%MC', meter_type: 'pin' },
