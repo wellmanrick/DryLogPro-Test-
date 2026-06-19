@@ -7435,9 +7435,28 @@ function _dlpCadOpenLiveRoomBuild(){
   const wet = el('input',{type:'checkbox',checked:true});
   const source = el('select',{},
     el('option',{value:'guided'},'Guided measured room'),
-    el('option',{value:'lidar'},'LiDAR companion placeholder'),
-    el('option',{value:'corner'},'Walked corner capture placeholder')
+    el('option',{value:'lidar'},'Phone LiDAR scan bridge'),
+    el('option',{value:'corner'},'Walked corner capture')
   );
+  const capturePath = el('select',{},
+    el('option',{value:'perimeter'},'Perimeter sweep'),
+    el('option',{value:'perimeter_center'},'Perimeter + center pass'),
+    el('option',{value:'roomplan'},'RoomPlan / app import')
+  );
+  const scanQuality = el('select',{},
+    el('option',{value:'field_ready'},'Field ready'),
+    el('option',{value:'draft'},'Draft capture'),
+    el('option',{value:'verified'},'Verified final')
+  );
+  const includePoints = el('input',{type:'checkbox',checked:true});
+  const captureNotes = el('textarea',{rows:2,placeholder:'Scan notes, blocked walls, mirrors, cabinetry, or access limits'});
+  const connectRooms = el('input',{type:'checkbox',checked:true});
+  const connectorType = el('select',{},
+    el('option',{value:'door'},'Door openings'),
+    el('option',{value:'connector'},'Open connectors'),
+    el('option',{value:'archway'},'Archways')
+  );
+  const connectorWidth = el('input',{type:'number',inputmode:'decimal',step:'0.1',placeholder:'Opening ft',value:'3'});
   const preview = el('div',{class:'dlp-live-preview'});
   const sessionRooms = [];
   const sessionList = el('div',{class:'dlp-live-session'});
@@ -7452,7 +7471,14 @@ function _dlpCadOpenLiveRoomBuild(){
 
   const buildSessionScan = () => _dlpLiveRoomScanPayload({
     source:source.value,
-    rooms: sessionRooms.length ? sessionRooms : [currentRoom()]
+    rooms: sessionRooms.length ? sessionRooms : [currentRoom()],
+    auto_connect: connectRooms.checked,
+    connector_type: connectorType.value,
+    connector_width_ft: connectorWidth.value,
+    capture_path: capturePath.value,
+    scan_quality: scanQuality.value,
+    include_points: includePoints.checked,
+    capture_notes: captureNotes.value
   });
 
   const renderSession = () => {
@@ -7461,7 +7487,7 @@ function _dlpCadOpenLiveRoomBuild(){
     const summary = _dlpCadScanSummary(scan);
     sessionList.appendChild(el('div',{class:'dlp-live-session-head'},
       el('strong',{}, `${summary.roomCount} room${summary.roomCount === 1 ? '' : 's'}`),
-      el('span',{}, `${summary.totalArea} sf floor / ${summary.wallSf} sf walls`)
+      el('span',{}, `${summary.totalArea} sf floor / ${summary.openingCount} opening${summary.openingCount === 1 ? '' : 's'}`)
     ));
     scan.rooms.forEach((room, idx) => {
       const row = el('div',{class:'dlp-live-session-row'},
@@ -7484,11 +7510,12 @@ function _dlpCadOpenLiveRoomBuild(){
     const summary = _dlpCadScanSummary(scan);
     preview.innerHTML = '';
     preview.appendChild(el('div',{class:'dlp-scan-status ok'}, `${summary.roomCount} room${summary.roomCount === 1 ? '' : 's'} / ${summary.totalArea} sf / ${summary.wallSf} wall sf`));
+    preview.appendChild(_dlpLiveCaptureReadiness(scan));
     renderSession();
     preview.appendChild(sessionList);
   };
-  [roomName,width,length,height,source].forEach(input => input.addEventListener('input', renderPreview));
-  wet.addEventListener('change', renderPreview);
+  [roomName,width,length,height,source,connectorWidth,captureNotes].forEach(input => input.addEventListener('input', renderPreview));
+  [wet, connectRooms, connectorType, source, capturePath, scanQuality, includePoints].forEach(input => input.addEventListener('change', renderPreview));
 
   const startCamera = async () => {
     try {
@@ -7498,7 +7525,7 @@ function _dlpCadOpenLiveRoomBuild(){
       support.textContent = 'Camera preview active. Browser LiDAR depth is not exposed here yet, so this build creates a reviewed scan payload from guided measurements.';
       support.className = 'dlp-live-support ok';
     } catch(e) {
-      support.textContent = 'Camera unavailable here. Use guided measurements now; live LiDAR depth can plug into this same scan payload later.';
+      support.textContent = 'Camera unavailable here. Use guided measurements now; phone LiDAR or RoomPlan exports can plug into this same scan payload later.';
       support.className = 'dlp-live-support warn';
     }
   };
@@ -7530,7 +7557,16 @@ function _dlpCadOpenLiveRoomBuild(){
       el('div',{class:'dlp-live-form'},
         el('div',{class:'dlp-live-grid'}, roomName, width, length, height),
         source,
+        el('section',{class:'dlp-live-connectors'},
+          el('div',{class:'dlp-live-grid'}, capturePath, scanQuality),
+          el('label',{class:'dlp-scan-toggle'}, includePoints, el('span',{},'Seed reading points from scan')),
+          captureNotes
+        ),
         el('label',{class:'dlp-scan-toggle'}, wet, el('span',{},'Affected / wet room')),
+        el('section',{class:'dlp-live-connectors'},
+          el('label',{class:'dlp-scan-toggle'}, connectRooms, el('span',{},'Auto-connect captured rooms')),
+          el('div',{class:'dlp-live-grid'}, connectorType, connectorWidth)
+        ),
         (() => { const b=el('button',{type:'button',class:'dlp-live-add'},'Add Room To Session'); b.addEventListener('click',()=>{ sessionRooms.push(currentRoom()); const n=sessionRooms.length+1; roomName.value='Scanned Room ' + n; width.value='12'; length.value='10'; wet.checked=true; renderPreview(); }); return b; })(),
         preview
       )
@@ -7548,7 +7584,12 @@ function _dlpCadOpenLiveRoomBuild(){
 }
 
 function _dlpLiveRoomScanPayload(input){
-  const source = input.source === 'lidar' ? 'Live LiDAR placeholder' : input.source === 'corner' ? 'Guided corner capture' : 'Guided live room build';
+  const source = input.source === 'lidar' ? 'Phone LiDAR scan bridge' : input.source === 'corner' ? 'Guided corner capture' : 'Guided live room build';
+  const capturePath = input.capture_path || 'perimeter';
+  const scanQuality = input.scan_quality || 'field_ready';
+  const pointNotes = input.include_points !== false
+    ? _dlpLivePointSeeds(capturePath)
+    : [];
   const rawRooms = Array.isArray(input.rooms) && input.rooms.length ? input.rooms : [input];
   let cursorX = 0;
   let cursorY = 0;
@@ -7568,19 +7609,89 @@ function _dlpLiveRoomScanPayload(input){
     rowHeight = Math.max(rowHeight, length);
     return room;
   });
+  const openings = [];
+  if (input.auto_connect !== false && rooms.length > 1) {
+    const type = input.connector_type || 'door';
+    const widthFt = Math.max(1.5, Number(input.connector_width_ft || 3));
+    for (let i = 0; i < rooms.length - 1; i++) {
+      const from = rooms[i];
+      const to = rooms[i + 1];
+      const sameRow = Math.abs(from.y_ft - to.y_ft) < 0.1;
+      openings.push({
+        from_room: from.label,
+        to_room: to.label,
+        wall: sameRow ? 'right' : 'bottom',
+        position: 0.5,
+        width_ft: widthFt,
+        type
+      });
+    }
+  }
   return {
     source,
     provider: 'DryLog Live Room Build',
     scanned_at: new Date().toISOString(),
+    capture_path: capturePath,
+    scan_quality: scanQuality,
     rooms,
-    openings: [],
+    openings,
     equipment: [],
-    points: rooms.map(room => ({room:room.label, point_label:'P1 source wall', x_ft:Math.round(room.width_ft * .82 * 10) / 10, y_ft:Math.round(room.length_ft * .22 * 10) / 10})),
+    points: input.include_points === false ? [] : rooms.flatMap(room => pointNotes.map(point => ({
+      room: room.label,
+      point_label: point.label,
+      x_ft: Math.round(room.width_ft * point.x * 10) / 10,
+      y_ft: Math.round(room.length_ft * point.y * 10) / 10
+    }))),
     notes: [
       'Captured through DryLog live room build.',
+      'Capture path: ' + capturePath.replace(/_/g, ' ') + '.',
+      'Scan quality: ' + scanQuality.replace(/_/g, ' ') + '.',
+      String(input.capture_notes || '').trim() || null,
       'Verify dimensions before final report.'
-    ]
+    ].filter(Boolean)
   };
+}
+
+function _dlpLivePointSeeds(capturePath){
+  if (capturePath === 'perimeter_center') {
+    return [
+      {label:'P1 source wall', x:.82, y:.22},
+      {label:'P2 opposite wall', x:.18, y:.78},
+      {label:'P3 center field', x:.5, y:.5}
+    ];
+  }
+  if (capturePath === 'roomplan') {
+    return [
+      {label:'P1 RoomPlan source wall', x:.8, y:.25},
+      {label:'P2 RoomPlan opposite wall', x:.2, y:.75}
+    ];
+  }
+  return [
+    {label:'P1 source wall', x:.82, y:.22}
+  ];
+}
+
+function _dlpLiveCaptureReadiness(scan){
+  const rooms = Array.isArray(scan?.rooms) ? scan.rooms : [];
+  const openings = Array.isArray(scan?.openings) ? scan.openings : [];
+  const points = Array.isArray(scan?.points) ? scan.points : [];
+  const quality = String(scan?.scan_quality || 'field_ready').replace(/_/g, ' ');
+  const path = String(scan?.capture_path || 'perimeter').replace(/_/g, ' ');
+  const checks = [
+    {ok:rooms.length > 0, label:'Rooms measured'},
+    {ok:openings.length > 0 || rooms.length < 2, label:'Room links'},
+    {ok:points.length > 0, label:'Reading points'},
+    {ok:scan?.source !== 'Phone LiDAR scan bridge' || scan?.capture_path === 'roomplan' || scan?.scan_quality !== 'draft', label:'LiDAR review'}
+  ];
+  return el('div',{class:'dlp-live-quality'},
+    el('div',{class:'dlp-live-quality-head'},
+      el('strong',{}, quality),
+      el('span',{}, path)
+    ),
+    el('div',{class:'dlp-live-checks'},
+      ...checks.map(check => el('span',{class:check.ok ? 'ok' : 'warn'}, check.label))
+    )
+  );
 }
 
 
