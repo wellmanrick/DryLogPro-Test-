@@ -5446,6 +5446,121 @@ button[style*="fef2f2"] {
   line-height: 1.35;
 }
 
+.dlp-scan-compare {
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #cfe0e5;
+  border-radius: var(--dlp-radius-sm);
+  background: #f8fbfb;
+}
+
+.dlp-scan-compare.compact {
+  margin-top: 6px;
+  padding: 8px;
+  gap: 6px;
+  background: #fbfdfd;
+}
+
+.dlp-scan-compare-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.dlp-scan-compare-head strong {
+  color: var(--dlp-ink);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.dlp-scan-compare-head span {
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.dlp-scan-compare-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.dlp-scan-compare.compact .dlp-scan-compare-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dlp-scan-compare.compact .dlp-scan-metric {
+  padding: 7px;
+}
+
+.dlp-scan-compare.compact .dlp-scan-metric span {
+  font-size: 9px;
+}
+
+.dlp-scan-compare.compact .dlp-scan-metric strong {
+  font-size: 12px;
+}
+
+.dlp-scan-compare-rooms {
+  display: grid;
+  gap: 6px;
+}
+
+.dlp-scan-compare-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 88px 118px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #d7e4e8;
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-scan-compare-room strong,
+.dlp-scan-compare-room span,
+.dlp-scan-compare-room em,
+.dlp-scan-compare-more {
+  overflow: hidden;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dlp-scan-compare-room strong {
+  color: var(--dlp-ink);
+}
+
+.dlp-scan-compare-room span {
+  display: grid;
+  min-height: 24px;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.dlp-scan-compare-room.match span {
+  background: #e6f7f4;
+  color: #076b5f;
+}
+
+.dlp-scan-compare-room.new span {
+  background: #fff1d6;
+  color: #875400;
+}
+
+.dlp-scan-compare-room em,
+.dlp-scan-compare-more {
+  color: var(--dlp-muted);
+}
+
+.dlp-scan-compare-more {
+  padding: 8px;
+  text-align: center;
+}
+
 .dlp-scan-room-list {
   display: grid;
   gap: 7px;
@@ -5759,6 +5874,84 @@ button[style*="fef2f2"] {
   color: var(--dlp-ink-2) !important;
   font-size: 11px;
   font-weight: 950;
+}
+
+.dlp-live-saved {
+  display: grid;
+  gap: 7px;
+}
+
+.dlp-live-saved-head,
+.dlp-live-saved-row {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #d7e4e8;
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+}
+
+.dlp-live-saved-head {
+  grid-template-columns: 1fr auto;
+  background: #f7fafb;
+}
+
+.dlp-live-saved-head strong,
+.dlp-live-saved-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dlp-ink);
+  font-size: 12px;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dlp-live-saved-head span,
+.dlp-live-saved-row span {
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.dlp-live-saved-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.dlp-live-saved-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.dlp-live-saved-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.dlp-live-saved-actions button {
+  min-height: 28px;
+  padding: 6px 8px;
+  border: 1px solid var(--dlp-line) !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  color: var(--dlp-ink-2) !important;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.dlp-live-saved-empty {
+  padding: 10px;
+  border: 1px dashed #c9d6dc;
+  border-radius: var(--dlp-radius-sm);
+  background: #fbfdfd;
+  color: var(--dlp-muted);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.4;
 }
 
 .dlp-export-panel {
@@ -6394,8 +6587,18 @@ img {
   }
 
   .dlp-live-session-row,
-  .dlp-live-session-head {
+  .dlp-live-session-head,
+  .dlp-live-saved-row,
+  .dlp-live-saved-head {
     grid-template-columns: 1fr;
+  }
+
+  .dlp-live-saved-actions {
+    justify-content: stretch;
+  }
+
+  .dlp-live-saved-actions button {
+    flex: 1 1 78px;
   }
 
   .dlp-live-camera {
@@ -6414,6 +6617,15 @@ img {
 
   .dlp-scan-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dlp-scan-compare-metrics,
+  .dlp-scan-compare.compact .dlp-scan-compare-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dlp-scan-compare-room {
+    grid-template-columns: 1fr;
   }
 
   .dlp-scan-footer {

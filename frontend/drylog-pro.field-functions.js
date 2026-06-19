@@ -7002,6 +7002,127 @@ function _dlpCadScanSummary(scan){
 }
 
 
+function _dlpCadScanStoreKey(){
+  const claimId = selectedJob?.job_id || 'demo';
+  return 'drylog_scan_captures_' + claimId;
+}
+
+function _dlpCadSavedScans(){
+  try {
+    const saved = JSON.parse(localStorage.getItem(_dlpCadScanStoreKey()) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch(e) {
+    return [];
+  }
+}
+
+function _dlpCadSaveScanCapture(scan, meta){
+  const summary = _dlpCadScanSummary(scan);
+  const entry = {
+    id: 'scan_' + Date.now(),
+    saved_at: new Date().toISOString(),
+    action: meta?.action || 'saved',
+    title: meta?.title || (scan?.source || scan?.provider || 'Room scan'),
+    source: scan?.source || scan?.provider || 'Room scan',
+    capture_path: scan?.capture_path || null,
+    scan_quality: scan?.scan_quality || null,
+    room_count: summary.roomCount,
+    opening_count: summary.openingCount,
+    total_area: summary.totalArea,
+    wall_sf: summary.wallSf,
+    scan
+  };
+  const next = [entry, ..._dlpCadSavedScans().filter(item => item.id !== entry.id)].slice(0, 16);
+  localStorage.setItem(_dlpCadScanStoreKey(), JSON.stringify(next));
+  return entry;
+}
+
+function _dlpCadDeleteScanCapture(id){
+  const next = _dlpCadSavedScans().filter(item => item.id !== id);
+  localStorage.setItem(_dlpCadScanStoreKey(), JSON.stringify(next));
+}
+
+function _dlpCadScanSavedStamp(value){
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'Saved scan';
+  return date.toLocaleString([], {month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+}
+
+function _dlpCadCompareScanToSketch(scan){
+  const summary = _dlpCadScanSummary(scan);
+  const sketchRows = dlpReportCadRowsFromState(__dlpCad?.state || {}, null);
+  const sketchByName = new Map(sketchRows.map(row => [String(row.room || '').trim().toLowerCase(), row]));
+  let matched = 0;
+  let added = 0;
+  let areaDelta = 0;
+  let wallDelta = 0;
+  const rooms = summary.normalized.rooms.map(room => {
+    const key = String(room.label || '').trim().toLowerCase();
+    const floor = room.width_ft * room.length_ft;
+    const wall = 2 * (room.width_ft + room.length_ft) * (room.ceiling_height_ft || 8);
+    const current = sketchByName.get(key);
+    if (current) {
+      matched++;
+      areaDelta += floor - Number(current.floor_sf || 0);
+      wallDelta += wall - Number(current.wall_sf || 0);
+      return {
+        label: room.label,
+        state: 'match',
+        meta: `${_dlpCadRound(floor - Number(current.floor_sf || 0), 1)} sf floor / ${_dlpCadRound(wall - Number(current.wall_sf || 0), 1)} sf wall`
+      };
+    }
+    added++;
+    areaDelta += floor;
+    wallDelta += wall;
+    return {
+      label: room.label,
+      state: 'new',
+      meta: `${_dlpCadRound(floor, 1)} sf floor / ${_dlpCadRound(wall, 1)} sf wall`
+    };
+  });
+  const scanNames = new Set(summary.normalized.rooms.map(room => String(room.label || '').trim().toLowerCase()));
+  const notInScan = sketchRows.filter(row => !scanNames.has(String(row.room || '').trim().toLowerCase())).length;
+  return {
+    summary,
+    sketchRoomCount: sketchRows.length,
+    matched,
+    added,
+    notInScan,
+    areaDelta: _dlpCadRound(areaDelta, 1),
+    wallDelta: _dlpCadRound(wallDelta, 1),
+    rooms
+  };
+}
+
+function _dlpCadScanComparePanel(scan, mode){
+  const compare = _dlpCadCompareScanToSketch(scan);
+  const compact = mode === 'compact';
+  const panel = el('div',{class:'dlp-scan-compare ' + (compact ? 'compact' : '')},
+    el('div',{class:'dlp-scan-compare-head'},
+      el('strong',{},'Sketch compare'),
+      el('span',{}, `${compare.matched} match / ${compare.added} new / ${compare.notInScan} not in scan`)
+    ),
+    el('div',{class:'dlp-scan-compare-metrics'},
+      _dlpScanMetric('Current', compare.sketchRoomCount),
+      _dlpScanMetric('Incoming', compare.summary.roomCount),
+      _dlpScanMetric('Floor delta', (compare.areaDelta >= 0 ? '+' : '') + compare.areaDelta + ' sf'),
+      _dlpScanMetric('Wall delta', (compare.wallDelta >= 0 ? '+' : '') + compare.wallDelta + ' sf')
+    )
+  );
+  if (!compact) {
+    const roomList = el('div',{class:'dlp-scan-compare-rooms'});
+    compare.rooms.slice(0, 8).forEach(room => roomList.appendChild(el('div',{class:'dlp-scan-compare-room ' + room.state},
+      el('strong',{}, room.label),
+      el('span',{}, room.state === 'match' ? 'Matched room' : 'New room'),
+      el('em',{}, room.meta)
+    )));
+    if (compare.rooms.length > 8) roomList.appendChild(el('div',{class:'dlp-scan-compare-more'}, `+ ${compare.rooms.length - 8} more rooms`));
+    panel.appendChild(roomList);
+  }
+  return panel;
+}
+
+
 function _dlpCadValidateScan(rawScan, normalized){
   const warnings = [];
   const rawRooms = Array.isArray(rawScan?.rooms) ? rawScan.rooms : [];
@@ -7087,6 +7208,7 @@ function _dlpCadOpenScanImport(seedScan){
       _dlpScanMetric('Points', summary.pointCount)
     );
     preview.appendChild(metrics);
+    preview.appendChild(_dlpCadScanComparePanel(scan));
     if (summary.warnings.length){
       const warningBox = el('div',{class:'dlp-scan-warnings'},
         el('strong',{},`${summary.warnings.length} review item${summary.warnings.length === 1 ? '' : 's'}`)
@@ -7155,6 +7277,7 @@ function _dlpCadOpenScanImport(seedScan){
           if (!parsed) return;
           b.disabled = true;
           b.textContent = 'Applying...';
+          _dlpCadSaveScanCapture(parsed, {action:'imported'});
           _dlpCadImportScanData(parsed, {replace: !!replaceBox.checked, confirm: !!replaceBox.checked});
           if (roomsBox.checked) {
             try {
@@ -7168,6 +7291,16 @@ function _dlpCadOpenScanImport(seedScan){
             }
           }
           close();
+        });
+        return b;
+      })(),
+      (() => {
+        const b=el('button',{type:'button'},'Save Capture');
+        b.addEventListener('click', () => {
+          renderPreview();
+          if (!parsed) return;
+          _dlpCadSaveScanCapture(parsed, {action:'review saved'});
+          tcToast('Scan capture saved locally', 'info');
         });
         return b;
       })()
@@ -7460,6 +7593,7 @@ function _dlpCadOpenLiveRoomBuild(){
   const preview = el('div',{class:'dlp-live-preview'});
   const sessionRooms = [];
   const sessionList = el('div',{class:'dlp-live-session'});
+  const savedList = el('div',{class:'dlp-live-saved'});
 
   const currentRoom = () => ({
     label:roomName.value,
@@ -7513,6 +7647,8 @@ function _dlpCadOpenLiveRoomBuild(){
     preview.appendChild(_dlpLiveCaptureReadiness(scan));
     renderSession();
     preview.appendChild(sessionList);
+    renderSaved();
+    preview.appendChild(savedList);
   };
   [roomName,width,length,height,source,connectorWidth,captureNotes].forEach(input => input.addEventListener('input', renderPreview));
   [wet, connectRooms, connectorType, source, capturePath, scanQuality, includePoints].forEach(input => input.addEventListener('change', renderPreview));
@@ -7530,8 +7666,8 @@ function _dlpCadOpenLiveRoomBuild(){
     }
   };
 
-  const apply = async () => {
-    const scan = buildSessionScan();
+  const applyScan = async (scan, saveAction) => {
+    _dlpCadSaveScanCapture(scan, {action:saveAction || 'built'});
     _dlpCadImportScanData(scan, {replace:false, confirm:false});
     try {
       const result = await _dlpCadSyncScanToDryLog(scan, {seedScope:true});
@@ -7541,6 +7677,35 @@ function _dlpCadOpenLiveRoomBuild(){
       return;
     }
     close();
+  };
+  const apply = async () => applyScan(buildSessionScan(), 'built');
+
+  const renderSaved = () => {
+    savedList.innerHTML = '';
+    const captures = _dlpCadSavedScans();
+    savedList.appendChild(el('div',{class:'dlp-live-saved-head'},
+      el('strong',{},'Saved captures'),
+      el('span',{}, captures.length ? `${captures.length} stored` : 'none yet')
+    ));
+    if (!captures.length) {
+      savedList.appendChild(el('div',{class:'dlp-live-saved-empty'},'Save a capture to keep a local scan trail before database storage is connected.'));
+      return;
+    }
+    captures.slice(0, 4).forEach(entry => {
+      const row = el('div',{class:'dlp-live-saved-row'},
+        el('div',{},
+          el('strong',{}, entry.title || entry.source || 'Room scan'),
+          el('span',{}, `${_dlpCadScanSavedStamp(entry.saved_at)} / ${entry.room_count || 0} rooms / ${entry.total_area || 0} sf`),
+          _dlpCadScanComparePanel(entry.scan, 'compact')
+        ),
+        el('div',{class:'dlp-live-saved-actions'},
+          (() => { const b=el('button',{type:'button'},'Review'); b.addEventListener('click',()=>{ close(); _dlpCadOpenScanImport(entry.scan); }); return b; })(),
+          (() => { const b=el('button',{type:'button'},'Build'); b.addEventListener('click',()=>applyScan(entry.scan, 'built from saved')); return b; })(),
+          (() => { const b=el('button',{type:'button'},'Delete'); b.addEventListener('click',()=>{ _dlpCadDeleteScanCapture(entry.id); renderPreview(); }); return b; })()
+        )
+      );
+      savedList.appendChild(row);
+    });
   };
 
   const panel = el('div',{class:'dlp-scan-panel dlp-live-panel'},
@@ -7573,7 +7738,8 @@ function _dlpCadOpenLiveRoomBuild(){
     ),
     el('div',{class:'dlp-scan-footer'},
       (() => { const b=el('button',{type:'button',class:'dlp-scan-apply'},'Build Room + Scope'); b.addEventListener('click', apply); return b; })(),
-      (() => { const b=el('button',{type:'button'},'Send to Scan Review'); b.addEventListener('click',()=>{ const scan=buildSessionScan(); close(); _dlpCadOpenScanImport(scan); }); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Save Capture'); b.addEventListener('click',()=>{ _dlpCadSaveScanCapture(buildSessionScan(), {action:'saved'}); tcToast('Scan capture saved locally', 'info'); renderPreview(); }); return b; })(),
+      (() => { const b=el('button',{type:'button'},'Send to Scan Review'); b.addEventListener('click',()=>{ const scan=buildSessionScan(); _dlpCadSaveScanCapture(scan, {action:'review'}); close(); _dlpCadOpenScanImport(scan); }); return b; })(),
       (() => { const b=el('button',{type:'button'},'Download Payload'); b.addEventListener('click',()=>_dlpCadDownloadJson('drylog-live-room-payload.json', buildSessionScan())); return b; })()
     )
   );
