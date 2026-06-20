@@ -4852,6 +4852,7 @@ function _dlpWizRenderPreflight(screen, step) {
   const noEquipment = (s.deploys_count || 0) === 0;
   const queueCount = s.queue_count || 0;
   screen.appendChild(dlpVisitRunSheet(s));
+  screen.appendChild(dlpVisitDeparturePanel(dlpVisitDepartureChecksFromSummary(s), 'Leave-site preview', 'What this visit should have before the tech leaves.'));
 
   screen.appendChild(el('div', {class:'dlp-visit-preflight-grid'},
     dlpVisitMetric('Chambers', s.zones_count || 0, 'active today', (s.zones_count || 0) ? 'ok' : 'warn'),
@@ -4909,6 +4910,59 @@ function dlpVisitRunSheet(summary){
       el('b',{}, row.action)
     )))
   );
+}
+
+function dlpVisitDepartureChecksFromSummary(summary){
+  const s = summary || {};
+  return [
+    {label:'Outdoor baseline', done:!!s.outdoor_done, meta:s.outdoor_done ? 'ready for comparisons' : 'capture before chamber readings', action:'Outdoor', onClick:_dlpWizAdvance},
+    {label:'Chamber air logged', done:(s.zones_count || 0) > 0, meta:(s.zones_count || 0) + ' active chambers in today\'s route', action:'Atmosphere', onClick:_dlpWizAdvance},
+    {label:'Moisture route mapped', done:(s.points_count || 0) > 0, meta:(s.points_count || 0) + ' repeatable meter points', action:'Readings', onClick:renderDlpRoomReadings},
+    {label:'Equipment verified', done:(s.deploys_count || 0) > 0, meta:(s.deploys_count || 0) + ' active units to inspect', action:'Equipment', onClick:renderDlpEquipmentList},
+    {label:'Scope reviewed', done:(s.scope_count || 0) > 0, meta:(s.scope_count || 0) + ' work lines on file', action:'Scope', onClick:renderDlpScopeReview},
+    {label:'Photos staged', done:(s.photos_count || 0) >= 3, meta:(s.photos_count || 0) + ' job photos on file', action:'Photos', onClick:renderDlpPhotos},
+    {label:'Offline queue clear', done:(s.queue_count || 0) === 0, meta:(s.queue_count || 0) ? s.queue_count + ' queued saves' : 'no pending saves', action:'Queue', onClick:renderDlpOfflineQueue}
+  ];
+}
+
+function dlpVisitDepartureChecksFromDaily(ctx){
+  const outdoor = ctx.outdoor || [];
+  const atm = ctx.atm || [];
+  const moi = ctx.moi || [];
+  const dehu = ctx.dehu || [];
+  const visitPhotos = Number(ctx.visitPhotos || 0);
+  return [
+    {label:'Outdoor baseline captured', done:outdoor.length > 0, meta:outdoor.length ? 'captured today' : 'not captured today', action:'Outdoor', onClick:renderDlpDailyVisitWizard},
+    {label:'Chamber atmosphere updated', done:atm.length > 0, meta:atm.length + ' atmosphere readings', action:'Atmosphere', onClick:renderDlpAtmosphereList},
+    {label:'Moisture readings saved', done:moi.length > 0, meta:moi.length + ' point readings', action:'Readings', onClick:renderDlpRoomReadings},
+    {label:'Dehu performance checked', done:dehu.length > 0, meta:dehu.length + ' equipment readings', action:'Equipment', onClick:renderDlpEquipmentList},
+    {label:'Visit photos attached', done:visitPhotos > 0, meta:visitPhotos + ' photos on this visit', action:'Photos', onClick:renderDlpPhotos},
+    {label:'Report can be reviewed', done:moi.length > 0 && atm.length > 0 && visitPhotos > 0, meta:'daily evidence package', action:'Report', onClick:renderDlpReportReview}
+  ];
+}
+
+function dlpVisitDeparturePanel(checks, title, note){
+  const list = Array.isArray(checks) ? checks : [];
+  const done = list.filter(c => c.done).length;
+  const panel = el('section',{class:'dlp-visit-departure'},
+    el('div',{class:'dlp-visit-departure-head'},
+      el('div',{}, el('span',{},title || 'Leave-site checklist'), el('strong',{}, done + '/' + list.length + ' clear'), el('em',{}, note || 'Confirm the file is safe to leave for today.')),
+      el('b',{}, list.length ? Math.round(done / list.length * 100) + '%' : '0%')
+    )
+  );
+  const grid = el('div',{class:'dlp-visit-departure-grid'});
+  list.forEach(check => {
+    const btn = el('button',{type:'button',class:'dlp-visit-departure-row ' + (check.done ? 'done' : 'todo')},
+      el('span',{}, check.done ? 'Clear' : 'Open'),
+      el('strong',{}, check.label),
+      el('em',{}, check.meta),
+      el('b',{}, check.done ? 'Ready' : check.action)
+    );
+    btn.addEventListener('click', check.onClick || renderDlpDailyVisitWizard);
+    grid.appendChild(btn);
+  });
+  panel.appendChild(grid);
+  return panel;
 }
 
 
@@ -6724,6 +6778,7 @@ async function _dlpWizRenderDone(screen){
   addLine(moi.length > 0,     moi.length    + ' moisture reading'   + (moi.length===1?'':'s')   + ' across ' + moiZones.size + ' chamber' + (moiZones.size===1?'':'s'));
   addLine(dehuCount > 0,      dehuCount     + ' dehu performance reading' + (dehuCount===1?'':'s'));
   addLine(visitPhotos > 0,    visitPhotos   + ' photo' + (visitPhotos===1?'':'s') + ' attached to this visit');
+  screen.appendChild(dlpVisitDeparturePanel(dlpVisitDepartureChecksFromDaily({outdoor, atm, moi, dehu, visitPhotos}), 'Leave-site checklist', 'Use this before walking out or calling the office.'));
 }
 
 function dlpVisitDailyScore(ctx){

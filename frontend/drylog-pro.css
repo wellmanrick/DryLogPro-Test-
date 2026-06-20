@@ -2981,6 +2981,133 @@ button[style*="fef2f2"] {
   text-transform: uppercase;
 }
 
+.dlp-visit-departure {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #c9d6dc;
+  border-radius: var(--dlp-radius);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(242,247,248,.94)),
+    repeating-linear-gradient(90deg, rgba(35,118,92,.04) 0 1px, transparent 1px 16px);
+  box-shadow: var(--dlp-shadow-sm);
+}
+
+.dlp-visit-departure-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.dlp-visit-departure-head span {
+  color: var(--dlp-cyan);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.dlp-visit-departure-head strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--dlp-ink);
+  font-size: 22px;
+  font-weight: 950;
+}
+
+.dlp-visit-departure-head em {
+  display: block;
+  margin-top: 4px;
+  color: var(--dlp-muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 820;
+}
+
+.dlp-visit-departure-head > b {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border: 1px solid #b8d7ea;
+  border-radius: 999px;
+  background: #f0f9ff;
+  color: #075985;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.dlp-visit-departure-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(156px, 1fr));
+  gap: 8px;
+}
+
+.dlp-visit-departure-row {
+  display: grid;
+  min-height: 106px;
+  align-content: start;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--dlp-line);
+  border-radius: var(--dlp-radius-sm);
+  background: #ffffff;
+  color: var(--dlp-ink);
+  text-align: left;
+}
+
+.dlp-visit-departure-row.done {
+  border-color: #bfe7d4;
+  background: #f3fbf7;
+}
+
+.dlp-visit-departure-row.todo {
+  border-color: #f4c6b0;
+  background: #fff7ed;
+}
+
+.dlp-visit-departure-row span,
+.dlp-visit-departure-row strong,
+.dlp-visit-departure-row em,
+.dlp-visit-departure-row b {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dlp-visit-departure-row span {
+  color: var(--dlp-muted);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.dlp-visit-departure-row strong {
+  color: var(--dlp-ink);
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.15;
+}
+
+.dlp-visit-departure-row em {
+  color: var(--dlp-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 780;
+  line-height: 1.3;
+}
+
+.dlp-visit-departure-row b {
+  margin-top: auto;
+  color: var(--dlp-cyan);
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
 .dlp-visit-preflight-card {
   min-height: 112px;
   display: grid;
@@ -7951,12 +8078,14 @@ img {
   }
 
   .dlp-visit-run-head,
-  .dlp-visit-scorecard-head {
+  .dlp-visit-scorecard-head,
+  .dlp-visit-departure-head {
     grid-template-columns: 1fr;
   }
 
   .dlp-visit-run-head > b,
-  .dlp-visit-scorecard-head > b {
+  .dlp-visit-scorecard-head > b,
+  .dlp-visit-departure-head > b {
     justify-self: start;
   }
 
